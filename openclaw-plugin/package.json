@@ -1,8 +1,11 @@
 {
-  "name": "openclaw-rover-control",
+  "name": "rover-control",
   "version": "0.1.0",
   "description": "OpenClaw plugin to control a 2WD rover via serial",
   "main": "index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
   "dependencies": {
     "serialport": "^12.0.0",
     "@serialport/parser-readline": "^12.0.0"
