@@ -37,10 +37,15 @@ simulator/
   test_serial_integration.py # Integration tests (6 tests)
 
 openclaw-plugin/
-  index.ts                   # Plugin entry — registers 8 movement tools
+  index.ts                   # Plugin entry — registers 8 tools + telemetry server
   openclaw.plugin.json       # Plugin manifest
   package.json               # Dependencies
   skills/rover/SKILL.md      # LLM instructions
+
+monitor/
+  rover_monitor.py           # Live TUI telemetry dashboard
+  test_monitor.py            # Unit tests (14 tests)
+  requirements.txt           # Python dependencies (rich)
 
 docs/
   plans/                     # Design and implementation docs
@@ -106,6 +111,15 @@ cd openclaw-plugin
 npm install
 # Then configure serialPort in your OpenClaw config
 ```
+
+### Run the telemetry monitor
+
+```bash
+pip install rich
+python3 monitor/rover_monitor.py
+```
+
+The monitor connects to the OpenClaw plugin's telemetry socket and shows live motor state, vitals, and command history. Start it alongside the simulator and OpenClaw to watch the rover in real-time.
 
 ## Development
 

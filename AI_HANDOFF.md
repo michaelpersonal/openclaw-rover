@@ -11,12 +11,12 @@ An AI-controlled 2WD rover. A Raspberry Pi Zero 2W runs an OpenClaw agent that i
 **What's built and working:**
 - Arduino firmware (`arduino/rover/rover.ino`) — compiles clean for `arduino:avr:nano` (12% flash, 22% RAM). Parses 9 serial commands, controls motors, has 500ms watchdog and STATUS telemetry.
 - Python simulator (`simulator/rover_sim.py`) — emulates the Arduino over a virtual serial port (pty). 27 tests passing. Full e2e test passing.
-- OpenClaw plugin (`openclaw-plugin/`) — registers 8 tools (rover_forward, rover_backward, rover_left, rover_right, rover_spin_left, rover_spin_right, rover_stop, rover_status). Not yet tested with actual OpenClaw runtime.
+- OpenClaw plugin (`openclaw-plugin/`) — registers 8 tools + telemetry server. Tested end-to-end with OpenClaw + Gemini 2.5 Flash + simulator. Polls STATUS every 250ms and streams telemetry over a Unix socket.
+- Telemetry monitor (`monitor/rover_monitor.py`) — live TUI dashboard showing motor bars, vitals, and command event log. 14 unit tests passing.
 
 **What's NOT built yet:**
 - No sensors or camera (future)
 - No vision/perception pipeline
-- OpenClaw plugin not integration-tested with the OpenClaw runtime
 - Not yet deployed to the actual Pi or Arduino hardware
 
 ## How to Build and Test
@@ -28,8 +28,14 @@ arduino-cli compile --fqbn arduino:avr:nano arduino/rover/
 # Simulator: run all 27 tests
 python3 -m pytest simulator/ -v
 
+# Monitor: run 14 unit tests
+cd monitor && python3 -m pytest test_monitor.py -v
+
 # Simulator: run interactive e2e demo
 python3 simulator/e2e_test.py
+
+# Live monitor: start alongside simulator + OpenClaw
+python3 monitor/rover_monitor.py
 ```
 
 ## Key Files You Should Read First
@@ -45,10 +51,11 @@ python3 simulator/e2e_test.py
 OpenClaw (Pi) ──USB Serial 9600 baud──→ Arduino Nano ──GPIO/PWM──→ TB6612FNG ──→ Motors
 ```
 
-Three software layers:
-1. **OpenClaw plugin** (`openclaw-plugin/index.ts`) — TypeScript, registers tools with the agent, bridges serial port
+Four software layers:
+1. **OpenClaw plugin** (`openclaw-plugin/index.ts`) — TypeScript, registers tools with the agent, bridges serial port, streams telemetry via Unix socket
 2. **Arduino firmware** (`arduino/rover/rover.ino`) — C++, parses commands, drives motors, watchdog
 3. **Simulator** (`simulator/rover_sim.py`) — Python, replaces Arduino for local development
+4. **Telemetry monitor** (`monitor/rover_monitor.py`) — Python/rich TUI, connects to plugin telemetry socket
 
 The plugin code is identical for simulator and real hardware. Only the serial port path changes.
 
@@ -79,6 +86,8 @@ Available for future sensors: D2–D5, D13, A0–A7.
 - **Speed clamping**: Both firmware and simulator clamp speed to 0–255. Negative values become 0, values >255 become 255.
 - **Motor A = Left, Motor B = Right**: Based on typical 2WD chassis wiring. May need to swap if the physical rover turns the wrong way.
 - **Watchdog fires once**: After timeout, sends `STOPPED:WATCHDOG` once and sets a flag. Flag resets on next command.
+- **Poller/tool race condition**: The telemetry poller and tool calls must use separate pending mechanisms. If both use the same `pending` callback, STATUS responses can be consumed by tool calls (and vice versa). Fixed with separate `pollerPending` flag.
+- **SerialPort lock**: Must use `lock: false` for pty devices. Real hardware may want locking enabled.
 
 ## Next Steps
 

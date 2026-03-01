@@ -21,6 +21,7 @@ Key challenge: developing and testing the brain software remotely without a phys
 
 ## Design Documents
 - [2026-03-01-rover-brain-design.md](../plans/2026-03-01-rover-brain-design.md) - Full system design (protocol, firmware, simulator, skill)
+- [2026-03-01-rover-monitor-design.md](../plans/2026-03-01-rover-monitor-design.md) - Telemetry monitor design (socket, TUI, polling)
 
 ## Project Layout
 ```
@@ -33,10 +34,14 @@ rover/
 │   ├── test_rover_sim.py           # 21 unit tests
 │   └── test_serial_integration.py  # 6 integration tests (pty round-trip)
 ├── openclaw-plugin/
-│   ├── index.ts                    # Plugin entry — registers 8 tools
+│   ├── index.ts                    # Plugin entry — 8 tools + telemetry server
 │   ├── openclaw.plugin.json        # Plugin manifest
 │   ├── package.json                # Dependencies (serialport)
 │   └── skills/rover/SKILL.md       # LLM instructions for rover control
+├── monitor/
+│   ├── rover_monitor.py            # Live TUI telemetry dashboard
+│   ├── test_monitor.py             # 14 unit tests
+│   └── requirements.txt            # Python deps (rich)
 ├── docs/
 │   ├── plans/                      # design documents
 │   └── project-knowledge/          # this knowledge base
@@ -62,3 +67,5 @@ rover/
 | 2026-03-01 | brain | OpenClaw + Gemini → rover plugin → simulator: full pipeline verified working |
 | 2026-03-01 | brain | SerialPort needs `lock: false` for pty devices; filter STOPPED:WATCHDOG from pending responses |
 | 2026-03-01 | brain | Gemini correctly maps "medium speed" → 150 and sequences multi-tool calls |
+| 2026-03-01 | brain | Telemetry monitor: plugin polls STATUS 250ms, streams JSON via Unix socket, TUI reads it |
+| 2026-03-01 | brain | Poller and tool calls must use separate pending mechanisms to avoid response mixing |
