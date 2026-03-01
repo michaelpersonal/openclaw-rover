@@ -59,3 +59,6 @@ rover/
 | 2026-03-01 | comms | Start/stop streaming model with 500ms watchdog safety net |
 | 2026-03-01 | comms | 9 commands, 4 response types, ASCII newline-terminated |
 | 2026-03-01 | hardware | Split brain: Pi (AI) ↔ USB Serial ↔ Arduino (motors) ↔ TB6612FNG |
+| 2026-03-01 | brain | OpenClaw + Gemini → rover plugin → simulator: full pipeline verified working |
+| 2026-03-01 | brain | SerialPort needs `lock: false` for pty devices; filter STOPPED:WATCHDOG from pending responses |
+| 2026-03-01 | brain | Gemini correctly maps "medium speed" → 150 and sequences multi-tool calls |

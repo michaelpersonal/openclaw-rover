@@ -56,12 +56,16 @@ export default function register(api: PluginApi) {
 
       parser.on("data", (line: string) => {
         const trimmed = line.trim();
+        if (trimmed === "STOPPED:WATCHDOG") {
+          // Always treat watchdog as unsolicited — never a response to a command
+          api.logger.warn(`Rover: ${trimmed}`);
+          return;
+        }
         if (pending) {
           const resolve = pending;
           pending = null;
           resolve(trimmed);
         } else {
-          // Unsolicited message (e.g., STOPPED:WATCHDOG)
           api.logger.warn(`Rover: ${trimmed}`);
         }
       });
