@@ -1,8 +1,11 @@
 // OpenClaw plugin: Rover Control
 // Registers 8 tools for controlling a 2WD rover via serial port.
+// Streams telemetry over a Unix socket for the TUI monitor.
 
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
+import * as net from "net";
+import * as fs from "fs";
 
 type PluginApi = {
   pluginConfig?: { serialPort?: string; baudRate?: number };
@@ -18,6 +21,11 @@ type PluginApi = {
 let port: SerialPort | null = null;
 let parser: ReadlineParser | null = null;
 let pending: ((value: string) => void) | null = null;
+
+// Telemetry state
+const SOCK_PATH = "/tmp/rover-telemetry.sock";
+let socketServer: net.Server | null = null;
+const socketClients: Set<net.Socket> = new Set();
 
 function sendCommand(cmd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -45,6 +53,93 @@ function toolResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+// === Telemetry functions ===
+
+function parseStatus(raw: string): Record<string, unknown> | null {
+  if (!raw.startsWith("STATUS:")) return null;
+  const body = raw.slice(7);
+  const parts: Record<string, string> = {};
+  for (const seg of body.split(";")) {
+    const eq = seg.indexOf("=");
+    if (eq > 0) parts[seg.slice(0, eq)] = seg.slice(eq + 1);
+  }
+
+  const motorParts = (parts.motors || "S,S").split(",");
+  function parseMotor(s: string) {
+    if (s === "S") return { dir: "S", speed: 0 };
+    return { dir: s[0], speed: parseInt(s.slice(1), 10) || 0 };
+  }
+
+  return {
+    type: "status",
+    motors: { left: parseMotor(motorParts[0]), right: parseMotor(motorParts[1] || "S") },
+    uptime: parseInt(parts.uptime || "0", 10),
+    cmds: parseInt(parts.cmds || "0", 10),
+    lastCmd: parseInt((parts.last_cmd || "0").replace("ms", ""), 10),
+    loopHz: parseInt((parts.loop || "0").replace("hz", ""), 10),
+    ts: Date.now(),
+  };
+}
+
+function broadcast(msg: Record<string, unknown>) {
+  const line = JSON.stringify(msg) + "\n";
+  for (const client of socketClients) {
+    try {
+      client.write(line);
+    } catch {
+      socketClients.delete(client);
+    }
+  }
+}
+
+function startSocketServer(logger: PluginApi["logger"]) {
+  try { fs.unlinkSync(SOCK_PATH); } catch {}
+
+  socketServer = net.createServer((client) => {
+    socketClients.add(client);
+    client.on("close", () => socketClients.delete(client));
+    client.on("error", () => socketClients.delete(client));
+  });
+  socketServer.listen(SOCK_PATH, () => {
+    logger.info(`Telemetry socket: ${SOCK_PATH}`);
+  });
+  socketServer.on("error", (err) => {
+    logger.error(`Telemetry socket error: ${err.message}`);
+  });
+}
+
+function startPoller() {
+  setInterval(() => {
+    if (!port || !port.isOpen || pending !== null) return;
+    sendCommand("STATUS")
+      .then((raw) => {
+        const parsed = parseStatus(raw);
+        if (parsed) broadcast(parsed);
+      })
+      .catch(() => {});
+  }, 250);
+}
+
+function formatStatusForLLM(parsed: Record<string, unknown>): string {
+  const m = parsed.motors as { left: { dir: string; speed: number }; right: { dir: string; speed: number } };
+  const dirName = (d: string) => d === "F" ? "▲" : d === "R" ? "▼" : "■";
+  const motorDesc = (motor: { dir: string; speed: number }) =>
+    motor.dir === "S" ? "stopped" : `${dirName(motor.dir)} ${motor.speed}`;
+  const uptimeSec = Math.floor((parsed.uptime as number) / 1000);
+  const h = Math.floor(uptimeSec / 3600);
+  const min = Math.floor((uptimeSec % 3600) / 60);
+  const s = uptimeSec % 60;
+  const upStr = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return [
+    `Motors: Left ${motorDesc(m.left)}, Right ${motorDesc(m.right)}`,
+    `Uptime: ${upStr}`,
+    `Commands: ${parsed.cmds} (last ${parsed.lastCmd}ms ago)`,
+    `Loop: ${parsed.loopHz} hz`,
+  ].join("\n");
+}
+
+// === Plugin registration ===
+
 export default function register(api: PluginApi) {
   const serialPath = api.pluginConfig?.serialPort;
   const baudRate = api.pluginConfig?.baudRate ?? 9600;
@@ -57,8 +152,8 @@ export default function register(api: PluginApi) {
       parser.on("data", (line: string) => {
         const trimmed = line.trim();
         if (trimmed === "STOPPED:WATCHDOG") {
-          // Always treat watchdog as unsolicited — never a response to a command
           api.logger.warn(`Rover: ${trimmed}`);
+          broadcast({ type: "event", event: "STOPPED:WATCHDOG", ts: Date.now() });
           return;
         }
         if (pending) {
@@ -75,6 +170,8 @@ export default function register(api: PluginApi) {
       });
 
       api.logger.info(`Rover connected on ${serialPath} @ ${baudRate} baud`);
+      startSocketServer(api.logger);
+      startPoller();
     } catch (err) {
       api.logger.error(`Failed to open serial port ${serialPath}: ${err}`);
     }
@@ -105,6 +202,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`FORWARD ${params.speed}`);
+      broadcast({ type: "command", cmd: "FORWARD", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -115,6 +213,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`BACKWARD ${params.speed}`);
+      broadcast({ type: "command", cmd: "BACKWARD", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -125,6 +224,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`LEFT ${params.speed}`);
+      broadcast({ type: "command", cmd: "LEFT", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -135,6 +235,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`RIGHT ${params.speed}`);
+      broadcast({ type: "command", cmd: "RIGHT", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -145,6 +246,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`SPIN_LEFT ${params.speed}`);
+      broadcast({ type: "command", cmd: "SPIN_LEFT", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -155,6 +257,7 @@ export default function register(api: PluginApi) {
     parameters: speedParam,
     async execute(_id, params) {
       const resp = await sendCommand(`SPIN_RIGHT ${params.speed}`);
+      broadcast({ type: "command", cmd: "SPIN_RIGHT", speed: params.speed, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -165,6 +268,7 @@ export default function register(api: PluginApi) {
     parameters: noParams,
     async execute() {
       const resp = await sendCommand("STOP");
+      broadcast({ type: "command", cmd: "STOP", response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
@@ -175,7 +279,10 @@ export default function register(api: PluginApi) {
     parameters: noParams,
     async execute() {
       const resp = await sendCommand("STATUS");
-      return toolResult(resp);
+      const parsed = parseStatus(resp);
+      if (!parsed) return toolResult(resp);
+      broadcast(parsed);
+      return toolResult(formatStatusForLLM(parsed));
     },
   });
 }
