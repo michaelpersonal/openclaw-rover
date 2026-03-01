@@ -42,6 +42,13 @@ rover/
 │   ├── rover_monitor.py            # Live TUI telemetry dashboard
 │   ├── test_monitor.py             # 14 unit tests
 │   └── requirements.txt            # Python deps (rich)
+├── workspace/
+│   ├── SOUL.md                     # Agent personality and values
+│   ├── USER.md                     # Human user profile
+│   ├── TOOLS.md                    # Environment notes (serial port setup)
+│   ├── AGENTS.md                   # Agent operating manual
+│   ├── IDENTITY.md                 # Agent name, emoji, vibe
+│   └── HEARTBEAT.md                # Periodic task checklist
 ├── docs/
 │   ├── plans/                      # design documents
 │   └── project-knowledge/          # this knowledge base

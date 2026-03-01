@@ -47,6 +47,14 @@ monitor/
   test_monitor.py            # Unit tests (14 tests)
   requirements.txt           # Python dependencies (rich)
 
+workspace/
+  SOUL.md                    # Agent personality and values
+  USER.md                    # Human user profile
+  TOOLS.md                   # Environment-specific notes (serial port, etc.)
+  AGENTS.md                  # Agent operating manual
+  IDENTITY.md                # Agent name, emoji, vibe
+  HEARTBEAT.md               # Periodic task checklist
+
 docs/
   plans/                     # Design and implementation docs
   project-knowledge/         # Compound knowledge base
@@ -109,7 +117,43 @@ arduino-cli upload --fqbn arduino:avr:nano --port /dev/ttyUSB0 arduino/rover/
 ```bash
 cd openclaw-plugin
 npm install
-# Then configure serialPort in your OpenClaw config
+openclaw plugins install --link .
+```
+
+### Configure the workspace
+
+Copy the workspace files to OpenClaw's workspace directory:
+
+```bash
+cp workspace/*.md ~/.openclaw/workspace/
+```
+
+### Configure the serial port
+
+Find your serial port:
+
+```bash
+# Real hardware (Arduino via USB)
+ls /dev/ttyUSB* /dev/ttyACM*
+
+# Simulator
+python3 simulator/rover_sim.py   # prints the pty path
+```
+
+Set it in `~/.openclaw/openclaw.json`:
+
+```json
+"plugins": {
+  "entries": {
+    "rover-control": {
+      "enabled": true,
+      "config": {
+        "serialPort": "/dev/ttyUSB0",
+        "baudRate": 9600
+      }
+    }
+  }
+}
 ```
 
 ### Run the telemetry monitor
