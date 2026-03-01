@@ -26,6 +26,7 @@ let pending: ((value: string) => void) | null = null;
 const SOCK_PATH = "/tmp/rover-telemetry.sock";
 let socketServer: net.Server | null = null;
 const socketClients: Set<net.Socket> = new Set();
+let pollerPending = false; // true while poller awaits a STATUS response
 
 function sendCommand(cmd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -109,14 +110,16 @@ function startSocketServer(logger: PluginApi["logger"]) {
 }
 
 function startPoller() {
+  // The poller writes STATUS directly to the port instead of using sendCommand,
+  // so it never interferes with tool call pending callbacks.
   setInterval(() => {
-    if (!port || !port.isOpen || pending !== null) return;
-    sendCommand("STATUS")
-      .then((raw) => {
-        const parsed = parseStatus(raw);
-        if (parsed) broadcast(parsed);
-      })
-      .catch(() => {});
+    if (!port || !port.isOpen || pending !== null || pollerPending) return;
+    pollerPending = true;
+    port.write("STATUS\n", (err) => {
+      if (err) pollerPending = false;
+    });
+    // Timeout: if no response in 2s, clear the flag so future polls can run
+    setTimeout(() => { pollerPending = false; }, 2000);
   }, 250);
 }
 
@@ -156,13 +159,22 @@ export default function register(api: PluginApi) {
           broadcast({ type: "event", event: "STOPPED:WATCHDOG", ts: Date.now() });
           return;
         }
+        // Tool calls take priority over poller
         if (pending) {
           const resolve = pending;
           pending = null;
           resolve(trimmed);
-        } else {
-          api.logger.warn(`Rover: ${trimmed}`);
+          return;
         }
+        // Poller response
+        if (pollerPending) {
+          pollerPending = false;
+          const parsed = parseStatus(trimmed);
+          if (parsed) broadcast(parsed);
+          return;
+        }
+        // Unsolicited
+        api.logger.warn(`Rover: ${trimmed}`);
       });
 
       port.on("error", (err) => {
