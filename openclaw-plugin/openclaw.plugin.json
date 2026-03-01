@@ -1,0 +1,22 @@
+{
+  "id": "rover-control",
+  "name": "Rover Control",
+  "description": "Control a 2WD rover via serial commands to an Arduino",
+  "version": "0.1.0",
+  "skills": ["skills/rover"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "serialPort": {
+        "type": "string",
+        "description": "Serial port path (e.g., /dev/ttyUSB0 or /dev/pts/X for simulator)"
+      },
+      "baudRate": {
+        "type": "number",
+        "description": "Serial baud rate",
+        "default": 9600
+      }
+    }
+  }
+}
