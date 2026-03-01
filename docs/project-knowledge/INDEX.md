@@ -26,7 +26,17 @@ Key challenge: developing and testing the brain software remotely without a phys
 ```
 rover/
 ├── arduino/
-│   └── rover_test/rover_test.ino   # current integration test sketch
+│   ├── rover/rover.ino             # production firmware (serial parser + motor control)
+│   └── rover_test/rover_test.ino   # original integration test sketch
+├── simulator/
+│   ├── rover_sim.py                # Python simulator (virtual serial port)
+│   ├── test_rover_sim.py           # 21 unit tests
+│   └── test_serial_integration.py  # 6 integration tests (pty round-trip)
+├── openclaw-plugin/
+│   ├── index.ts                    # Plugin entry — registers 8 tools
+│   ├── openclaw.plugin.json        # Plugin manifest
+│   ├── package.json                # Dependencies (serialport)
+│   └── skills/rover/SKILL.md       # LLM instructions for rover control
 ├── docs/
 │   ├── plans/                      # design documents
 │   └── project-knowledge/          # this knowledge base
@@ -42,9 +52,10 @@ rover/
 ## Recent Learnings
 | Date | Domain | Summary |
 |------|--------|---------|
-| 2026-03-01 | design | Full brain design completed — protocol, firmware, simulator, skill |
+| 2026-03-01 | build | All 4 components built: firmware, simulator, tests, OpenClaw plugin |
+| 2026-03-01 | arduino | Firmware compiles clean: 12% flash (3964B), 22% RAM (459B) on Nano |
+| 2026-03-01 | simulator | 27 tests pass (21 unit + 6 integration). pty echo must be disabled via tty.setraw() |
+| 2026-03-01 | brain | OpenClaw plugin uses registerTool() API, needs serialport npm package |
 | 2026-03-01 | comms | Start/stop streaming model with 500ms watchdog safety net |
 | 2026-03-01 | comms | 9 commands, 4 response types, ASCII newline-terminated |
-| 2026-03-01 | brain | OpenClaw skill exposes 8 tools, LLM maps intent to speed values |
 | 2026-03-01 | hardware | Split brain: Pi (AI) ↔ USB Serial ↔ Arduino (motors) ↔ TB6612FNG |
-| 2026-03-01 | arduino | 7 pins used (D6-D12), D0-D5/D13/A0-A7 available for sensors |
