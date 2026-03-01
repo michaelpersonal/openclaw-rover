@@ -14,6 +14,9 @@ An AI-controlled 2WD rover. A Raspberry Pi Zero 2W runs an OpenClaw agent that i
 - OpenClaw plugin (`openclaw-plugin/`) — registers 8 tools + telemetry server. Tested end-to-end with OpenClaw + Gemini 2.5 Flash + simulator. Polls STATUS every 250ms and streams telemetry over a Unix socket.
 - Telemetry monitor (`monitor/rover_monitor.py`) — live TUI dashboard showing motor bars, vitals, and command event log. 14 unit tests passing.
 
+**What's built and working (cont'd):**
+- OpenClaw workspace config (`workspace/`) — agent identity (SOUL, IDENTITY), user profile (USER), operating manual (AGENTS), environment notes (TOOLS), periodic tasks (HEARTBEAT). Copy to `~/.openclaw/workspace/` to deploy.
+
 **What's NOT built yet:**
 - No sensors or camera (future)
 - No vision/perception pipeline
@@ -38,12 +41,34 @@ python3 simulator/e2e_test.py
 python3 monitor/rover_monitor.py
 ```
 
+## How to Deploy OpenClaw
+
+```bash
+# 1. Install the plugin
+cd openclaw-plugin && npm install
+openclaw plugins install --link .
+
+# 2. Copy workspace files (agent identity + config)
+cp workspace/*.md ~/.openclaw/workspace/
+
+# 3. Find your serial port
+ls /dev/ttyUSB* /dev/ttyACM*        # real hardware
+python3 simulator/rover_sim.py       # simulator (prints pty path)
+
+# 4. Set serial port in ~/.openclaw/openclaw.json
+#    plugins.entries.rover-control.config.serialPort = "/dev/ttyUSB0"
+
+# 5. Start OpenClaw
+openclaw
+```
+
 ## Key Files You Should Read First
 
 1. `docs/plans/2026-03-01-rover-brain-design.md` — full system design (protocol, architecture, all decisions)
 2. `docs/project-knowledge/INDEX.md` — knowledge base index with learnings
 3. `docs/project-knowledge/domains/arduino.md` — pin wiring, motor mapping, direction truth table
 4. `docs/project-knowledge/domains/comms.md` — serial protocol summary
+5. `workspace/AGENTS.md` — how the OpenClaw agent should behave as a rover controller
 
 ## Architecture
 
@@ -51,11 +76,12 @@ python3 monitor/rover_monitor.py
 OpenClaw (Pi) ──USB Serial 9600 baud──→ Arduino Nano ──GPIO/PWM──→ TB6612FNG ──→ Motors
 ```
 
-Four software layers:
+Five software layers:
 1. **OpenClaw plugin** (`openclaw-plugin/index.ts`) — TypeScript, registers tools with the agent, bridges serial port, streams telemetry via Unix socket
-2. **Arduino firmware** (`arduino/rover/rover.ino`) — C++, parses commands, drives motors, watchdog
-3. **Simulator** (`simulator/rover_sim.py`) — Python, replaces Arduino for local development
-4. **Telemetry monitor** (`monitor/rover_monitor.py`) — Python/rich TUI, connects to plugin telemetry socket
+2. **OpenClaw workspace** (`workspace/`) — Markdown config files that define the agent's personality, knowledge, and operating rules. Deployed to `~/.openclaw/workspace/`
+3. **Arduino firmware** (`arduino/rover/rover.ino`) — C++, parses commands, drives motors, watchdog
+4. **Simulator** (`simulator/rover_sim.py`) — Python, replaces Arduino for local development
+5. **Telemetry monitor** (`monitor/rover_monitor.py`) — Python/rich TUI, connects to plugin telemetry socket
 
 The plugin code is identical for simulator and real hardware. Only the serial port path changes.
 
