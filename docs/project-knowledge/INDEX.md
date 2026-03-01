@@ -76,3 +76,6 @@ rover/
 | 2026-03-01 | brain | Gemini correctly maps "medium speed" → 150 and sequences multi-tool calls |
 | 2026-03-01 | brain | Telemetry monitor: plugin polls STATUS 250ms, streams JSON via Unix socket, TUI reads it |
 | 2026-03-01 | brain | Poller and tool calls must use separate pending mechanisms to avoid response mixing |
+| 2026-03-01 | brain | OpenClaw installed under Node 22 — must `nvm use 22` before running `openclaw` CLI |
+| 2026-03-01 | brain | auth-profiles.json needs `version:1` + `profiles:{}` wrapper, `type: "api_key"` (underscore not hyphen) |
+| 2026-03-01 | brain | Workspace files (SOUL, USER, etc.) live in repo at `workspace/`, deploy to `~/.openclaw/workspace/` |
