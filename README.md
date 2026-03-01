@@ -165,6 +165,85 @@ python3 monitor/rover_monitor.py
 
 The monitor connects to the OpenClaw plugin's telemetry socket and shows live motor state, vitals, and command history. Start it alongside the simulator and OpenClaw to watch the rover in real-time.
 
+## Deploy to Raspberry Pi
+
+Full steps to get the rover running on the Pi with real hardware.
+
+### 1. Flash the Arduino
+
+Connect the Arduino Nano via USB and upload the firmware:
+
+```bash
+arduino-cli compile --fqbn arduino:avr:nano arduino/rover/
+arduino-cli upload --fqbn arduino:avr:nano --port /dev/ttyUSB0 arduino/rover/
+```
+
+### 2. Install OpenClaw on the Pi
+
+```bash
+# Install Node.js (v22+)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt install -y nodejs
+
+# Install OpenClaw
+npm install -g openclaw
+openclaw setup
+```
+
+### 3. Install the rover plugin
+
+```bash
+git clone https://github.com/michaelpersonal/openclaw-rover.git
+cd openclaw-rover/openclaw-plugin
+npm install
+openclaw plugins install --link .
+```
+
+### 4. Deploy workspace files
+
+```bash
+cp ../workspace/*.md ~/.openclaw/workspace/
+```
+
+### 5. Configure the Google API key
+
+```bash
+# Create auth file
+mkdir -p ~/.openclaw/agents/main/agent
+cat > ~/.openclaw/agents/main/agent/auth-profiles.json << 'EOF'
+{
+  "version": 1,
+  "profiles": {
+    "google:manual": {
+      "provider": "google",
+      "apiKey": "YOUR_GOOGLE_API_KEY",
+      "type": "api_key"
+    }
+  }
+}
+EOF
+```
+
+### 6. Configure the serial port
+
+Find the Arduino's serial port and set it:
+
+```bash
+ls /dev/ttyUSB* /dev/ttyACM*
+```
+
+Edit `~/.openclaw/openclaw.json` — set `plugins.entries.rover-control.config.serialPort` to the port (e.g., `/dev/ttyUSB0`).
+
+### 7. Verify
+
+```bash
+# Check model and auth
+openclaw models status
+
+# Test the rover
+openclaw agent --local --agent main --message "ping the rover" --json
+```
+
 ## Development
 
 The simulator emulates the Arduino firmware over a virtual serial port. The OpenClaw plugin code is identical whether talking to the simulator or real hardware — only the serial port path changes.
