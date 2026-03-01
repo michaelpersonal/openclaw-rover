@@ -51,7 +51,7 @@ export default function register(api: PluginApi) {
 
   if (serialPath) {
     try {
-      port = new SerialPort({ path: serialPath, baudRate });
+      port = new SerialPort({ path: serialPath, baudRate, lock: false });
       parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
 
       parser.on("data", (line: string) => {
