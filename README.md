@@ -205,24 +205,33 @@ openclaw plugins install --link .
 cp ../workspace/*.md ~/.openclaw/workspace/
 ```
 
-### 5. Configure the Google API key
+### 5. Configure the model and API key
+
+Set your preferred model, then add the API key:
 
 ```bash
-# Create auth file
+# Set model (pick one)
+openclaw config set agents.defaults.model.primary google/gemini-2.5-flash
+openclaw config set agents.defaults.model.primary kimi/moonshot-v1
+openclaw config set agents.defaults.model.primary openai/codex
+
+# Add API key
 mkdir -p ~/.openclaw/agents/main/agent
 cat > ~/.openclaw/agents/main/agent/auth-profiles.json << 'EOF'
 {
   "version": 1,
   "profiles": {
-    "google:manual": {
-      "provider": "google",
-      "apiKey": "YOUR_GOOGLE_API_KEY",
+    "PROVIDER:manual": {
+      "provider": "PROVIDER",
+      "apiKey": "YOUR_API_KEY",
       "type": "api_key"
     }
   }
 }
 EOF
 ```
+
+Replace `PROVIDER` with `google`, `kimi`, `openai`, etc. to match your model.
 
 ### 6. Configure the serial port
 
