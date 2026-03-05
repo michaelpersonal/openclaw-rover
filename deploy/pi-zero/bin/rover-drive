@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$HOME/rover"
+CMD_FILE="$STATE_DIR/drive_cmd"
+PID_FILE="$STATE_DIR/drive.pid"
+STATE_FILE="$STATE_DIR/drive_state.json"
+DAEMON="$HOME/rover/bin/rover-drive-daemon.py"
+ROVERCTL="$HOME/rover/bin/roverctl.py"
+LOG_FILE="$STATE_DIR/logs/drive.log"
+mkdir -p "$STATE_DIR/logs"
+
+is_running() {
+  [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+start_daemon() {
+  nohup python3 "$DAEMON" >> "$LOG_FILE" 2>&1 &
+  sleep 0.2
+}
+
+print_state() {
+  python3 - <<'PY'
+import json, pathlib, time
+p = pathlib.Path.home()/"rover"/"drive_state.json"
+for _ in range(6):
+    if p.exists():
+        s = json.loads(p.read_text())
+        st = s.get('last_status','')
+        if st:
+            break
+    time.sleep(0.2)
+if not p.exists():
+    print("status=unavailable")
+else:
+    s = json.loads(p.read_text())
+    print(f"port={s.get('port')} action={s.get('action')} speed={s.get('speed')}")
+    print(f"status={s.get('last_status','')}")
+    if s.get('last_error'):
+        print(f"error={s.get('last_error')}")
+PY
+}
+
+case "${1:-}" in
+  start)
+    ACTION="${2:-}"
+    SPEED="${3:-160}"
+    case "$ACTION" in
+      forward|backward|left|right|spin_left|spin_right) ;;
+      *) echo "invalid action: $ACTION" >&2; exit 2 ;;
+    esac
+    if ! [[ "$SPEED" =~ ^[0-9]+$ ]]; then SPEED=160; fi
+    [ "$SPEED" -gt 255 ] && SPEED=255
+    echo "$ACTION $SPEED" > "$CMD_FILE"
+    if ! is_running; then
+      start_daemon
+    fi
+    echo "drive_started action=$ACTION speed=$SPEED pid=$(cat "$PID_FILE" 2>/dev/null || echo unknown)"
+    ;;
+  stop)
+    echo "stop 0" > "$CMD_FILE"
+    if is_running; then
+      sleep 0.3
+      kill "$(cat "$PID_FILE")" || true
+      rm -f "$PID_FILE"
+    fi
+    "$ROVERCTL" stop || true
+    echo "drive_stopped"
+    ;;
+  status)
+    if is_running; then
+      echo "drive=running pid=$(cat "$PID_FILE") cmd=$(cat "$CMD_FILE" 2>/dev/null || echo none)"
+      print_state
+    else
+      echo "drive=stopped"
+      "$ROVERCTL" status || true
+    fi
+    ;;
+  *)
+    echo "usage: rover-drive <start action speed|stop|status>" >&2
+    exit 1
+    ;;
+esac

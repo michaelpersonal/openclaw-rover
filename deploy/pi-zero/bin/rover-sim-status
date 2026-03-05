@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PID=""
+PORT=""
+if [ -f "$HOME/rover/sim.pid" ]; then PID=$(cat "$HOME/rover/sim.pid"); fi
+if [ -f "$HOME/rover/sim_port" ]; then PORT=$(cat "$HOME/rover/sim_port"); fi
+if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+  echo "running pid=$PID port=${PORT:-unknown}"
+else
+  echo "stopped"
+fi

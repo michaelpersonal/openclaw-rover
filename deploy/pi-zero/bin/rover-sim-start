@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$HOME/rover/logs"
+if [ -f "$HOME/rover/sim.pid" ] && kill -0 "$(cat "$HOME/rover/sim.pid")" 2>/dev/null; then
+  echo "simulator already running pid=$(cat "$HOME/rover/sim.pid")"
+  exit 0
+fi
+: > "$HOME/rover/logs/sim.log"
+nohup python3 -u "$HOME/src/openclaw-rover/simulator/rover_sim.py" >> "$HOME/rover/logs/sim.log" 2>&1 &
+echo $! > "$HOME/rover/sim.pid"
+for i in $(seq 1 80); do
+  LINE=$(grep -E "Connect to: /dev/pts/[0-9]+" "$HOME/rover/logs/sim.log" | tail -n1 || true)
+  PORT=$(echo "$LINE" | sed -E "s/^.*Connect to: (\/dev\/pts\/[0-9]+).*$/\1/")
+  if [ -n "${PORT:-}" ] && [ -e "$PORT" ]; then
+    echo "$PORT" > "$HOME/rover/sim_port"
+    echo "simulator started pid=$(cat "$HOME/rover/sim.pid") port=$PORT"
+    exit 0
+  fi
+  sleep 0.1
+done
+echo "simulator started but port not detected yet; check $HOME/rover/logs/sim.log" >&2
+exit 1

@@ -1,40 +1,54 @@
 # TOOLS.md - Local Notes
 
-## Rover Serial Port
+## Deployment Topology (Phase 1)
 
-The rover-control plugin connects to the Arduino (or simulator) via serial port.
+- OpenClaw Gateway + Telegram + LLM run on **Pi5 (`guopi`)**
+- Rover hardware/simulator bridge runs on **Pi Zero (`roverpi`)**
+- Pi5 controls Pi Zero via SSH wrapper: `~/.local/bin/rover-remote`
 
-### Finding the port
+## Primary Command Path (Pi5)
 
-- **Real hardware** (Arduino Nano via USB): Usually `/dev/ttyUSB0` or `/dev/ttyACM0`
-  - Run: `ls /dev/ttyUSB* /dev/ttyACM*` to find it
-- **Simulator**: The simulator prints its pty path on startup, e.g., `/dev/pts/4`
-  - Run: `python3 ~/code/rover/simulator/rover_sim.py` — it prints the port
-
-### Changing the port
-
-Edit `~/.openclaw/openclaw.json`, find `plugins.entries.rover-control.config.serialPort` and set it:
-
-```json
-"config": {
-  "serialPort": "/dev/pts/4",
-  "baudRate": 9600
-}
+```bash
+~/.local/bin/rover-remote <forward|backward|left|right|spin_left|spin_right|stop|status|ping> [speed]
 ```
 
-Then restart OpenClaw.
+Examples:
 
-### Speed reference
+```bash
+~/.local/bin/rover-remote forward 160
+~/.local/bin/rover-remote status
+~/.local/bin/rover-remote stop
+```
 
-| Label  | PWM value |
-|--------|-----------|
-| Slow   | ~80       |
-| Medium | ~150      |
-| Fast   | ~200      |
-| Max    | 255       |
+## Simulator Controls (Pi Zero)
 
-## Telemetry Monitor
+```bash
+~/rover/bin/rover-sim-start
+~/rover/bin/rover-sim-status
+~/rover/bin/rover-sim-stop
+```
 
-- Start: `python3 ~/code/rover/monitor/rover_monitor.py`
-- Connects to `/tmp/rover-telemetry.sock` (created by the plugin)
-- Shows live motor state, vitals, command history
+When simulator is running, `~/rover/bin/roverctl.py` auto-uses `~/rover/sim_port`.
+
+## Hardware Controls (Pi Zero)
+
+- Expected serial: `/dev/ttyUSB0` or `/dev/ttyACM0`
+- Control script:
+
+```bash
+~/rover/bin/roverctl.py <action> [speed]
+```
+
+## Telegram Dashboard Expectations
+
+- Every move command returns: action ack + immediate status snapshot.
+- `status` returns concise operational lines.
+- `watch rover <seconds>` streams status at 1Hz for short windows (3-30s).
+
+## Safety Rules
+
+- Speed bound: `0..255`
+- Default speed: `160`
+- Retry once on error, then issue `stop`
+- Always honor explicit stop immediately
+

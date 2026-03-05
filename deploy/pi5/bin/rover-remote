@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 1 ]; then
+  echo "usage: rover-remote <forward|backward|left|right|spin_left|spin_right|stop|status|ping> [speed]" >&2
+  exit 1
+fi
+ACTION="$1"; shift || true
+SPEED="${1:-}"
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 roverpi)
+
+case "$ACTION" in
+  forward|backward|left|right|spin_left|spin_right)
+    if [[ -z "$SPEED" ]]; then SPEED=160; fi
+    "${SSH[@]}" ~/rover/bin/rover-drive start "$ACTION" "$SPEED"
+    ;;
+  stop)
+    "${SSH[@]}" ~/rover/bin/rover-drive stop
+    ;;
+  status)
+    "${SSH[@]}" ~/rover/bin/rover-drive status
+    ;;
+  ping)
+    "${SSH[@]}" ~/rover/bin/roverctl.py ping
+    ;;
+  *)
+    echo "unknown action: $ACTION" >&2
+    exit 2
+    ;;
+esac
