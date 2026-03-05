@@ -25,8 +25,8 @@ Telegram is the primary interface and should act like a compact dashboard.
 
 For every movement command:
 
-1. Execute requested action.
-2. Immediately fetch `status`.
+1. Execute requested action via a single `rover-remote` call.
+2. Use the status snapshot returned by that same call.
 3. Reply with:
    - action ack
    - current motors
@@ -74,6 +74,19 @@ Language mapping:
 - "scan/look around" -> `rover_scan()`
 - "face/turn to X degrees" -> `rover_spin_to(angle)`
 - "status/how are you" -> `status`
+
+Exact command fast path (critical for latency):
+
+- If Telegram text is exactly one of these (ignoring case/punctuation), run tool immediately with no extra interpretation:
+  - `go forward` -> `forward 160`
+  - `go backward` -> `backward 160`
+  - `turn left` -> `left 160`
+  - `turn right` -> `right 160`
+  - `spin left` -> `spin_left 160`
+  - `spin right` -> `spin_right 160`
+  - `rover stop` / `stop rover` -> `stop`
+  - `status` -> `status`
+- Do not ask follow-up questions for these exact commands.
 
 ## Watch Mode (Telegram Dashboard Behavior)
 

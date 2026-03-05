@@ -6,12 +6,27 @@ if [ $# -lt 1 ]; then
 fi
 ACTION="$1"; shift || true
 SPEED="${1:-}"
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 roverpi)
+
+# Keep a warm control socket so repeated commands avoid full SSH setup.
+SOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/rover-remote-ssh"
+mkdir -p "$SOCK_DIR"
+chmod 700 "$SOCK_DIR" 2>/dev/null || true
+CONTROL_PATH="$SOCK_DIR/%r@%h:%p"
+SSH=(
+  ssh
+  -o BatchMode=yes
+  -o ConnectTimeout=8
+  -o ControlMaster=auto
+  -o ControlPersist=120
+  -o ControlPath="$CONTROL_PATH"
+  roverpi
+)
 
 case "$ACTION" in
   forward|backward|left|right|spin_left|spin_right)
     if [[ -z "$SPEED" ]]; then SPEED=160; fi
-    "${SSH[@]}" ~/rover/bin/rover-drive start "$ACTION" "$SPEED"
+    # Execute start + status in a single SSH round trip.
+    "${SSH[@]}" "bash -lc '~/rover/bin/rover-drive start \"$ACTION\" \"$SPEED\"; ~/rover/bin/rover-drive status'"
     ;;
   stop)
     "${SSH[@]}" ~/rover/bin/rover-drive stop
