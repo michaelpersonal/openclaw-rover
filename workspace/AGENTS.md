@@ -71,6 +71,8 @@ Language mapping:
 - "turn left/right" -> `left/right`
 - "spin left/right/rotate" -> `spin_left/spin_right`
 - "rover stop" / "stop rover" / "emergency rover stop" -> `stop` (highest priority)
+- "scan/look around" -> `rover_scan()`
+- "face/turn to X degrees" -> `rover_spin_to(angle)`
 - "status/how are you" -> `status`
 
 ## Watch Mode (Telegram Dashboard Behavior)
@@ -99,6 +101,8 @@ When in doubt, stop first.
 - Stop has absolute priority over all other commands.
 - On command error or timeout, retry once; if still failing, issue `stop` and report degraded state.
 - If watchdog fires (`STOPPED:WATCHDOG`), report it explicitly.
+- During a scan, the rover is spinning — do not issue other movement commands.
+- After obstacle detection, prefer scan-and-navigate over blind retries.
 - Never send destructive shell commands.
 
 ## Response Style (Telegram)
