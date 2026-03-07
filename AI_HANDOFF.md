@@ -14,6 +14,7 @@ An AI-controlled 2WD rover. A Raspberry Pi Zero 2W runs an OpenClaw agent that i
 - OpenClaw plugin (`openclaw-plugin/`) — registers 8 tools + telemetry server. Tested end-to-end with OpenClaw + Gemini 2.5 Flash + simulator. Polls STATUS every 250ms and streams telemetry over a Unix socket.
 - Telemetry monitor (`monitor/rover_monitor.py`) — live TUI dashboard showing motor bars, vitals, and command event log. 14 unit tests passing.
 - Obstacle avoidance — HC-SR04 ultrasonic sensor on Arduino (D2/D3), auto-stops at <20cm, blocks FORWARD, notifies via serial. Supported in simulator via SET_OBSTACLE/CLEAR_OBSTACLE commands.
+- Gyroscope heading — GY-521 MPU6050 on I2C (A4/A5), SPIN_TO command for precise turns, 360-degree obstacle scanning via rover_scan tool
 
 **What's built and working (cont'd):**
 - OpenClaw workspace config (`workspace/`) — agent identity (SOUL, IDENTITY), user profile (USER), operating manual (AGENTS), environment notes (TOOLS), periodic tasks (HEARTBEAT). Copy to `~/.openclaw/workspace/` to deploy.
@@ -105,8 +106,10 @@ ASCII, newline-terminated, 9600 baud. Commands: FORWARD, BACKWARD, LEFT, RIGHT, 
 | D12 | STBY (enable)| Both |
 | D2  | TRIG (trigger) | Ultrasonic |
 | D3  | ECHO (echo)    | Ultrasonic |
+| A4  | SDA (I2C data) | Gyroscope |
+| A5  | SCL (I2C clock) | Gyroscope |
 
-Available for future sensors: D4, D5, D13, A0–A7.
+Available for future sensors: D4, D5, D13, A0–A3.
 
 ## Gotchas and Learnings
 

@@ -23,6 +23,7 @@ User (natural language)
 - WWZMDiB TB6612FNG — dual motor driver
 - Battery / power bank
 - HC-SR04 Ultrasonic Sensor — obstacle detection
+- GY-521 (MPU6050) — gyroscope for heading control
 
 ## Project Structure
 
@@ -77,6 +78,7 @@ ASCII text, newline-terminated. One command per line, one response per line.
 | `SPIN_RIGHT <speed>` | `SPIN_RIGHT 100` | Left forward, right reverse |
 | `STOP` | `STOP` | All motors off |
 | `PING` | `PING` | Heartbeat |
+| `SPIN_TO <angle>` | `SPIN_TO 90` | Spin to heading (0-359) using gyroscope |
 | `STATUS` | `STATUS` | Request telemetry |
 
 Speed: 0–255 (PWM). ~80=slow, ~150=medium, ~200=fast.
@@ -88,10 +90,11 @@ Speed: 0–255 (PWM). ~80=slow, ~150=medium, ~200=fast.
 | `OK` | Command accepted |
 | `ERR:<message>` | Parse error |
 | `PONG` | Reply to PING |
-| `STATUS:motors=F180,F180;dist=42cm;uptime=12340;cmds=47;last_cmd=230ms;loop=8200hz` | Telemetry |
+| `STATUS:motors=F180,F180;dist=42cm;heading=270;uptime=12340;cmds=47;last_cmd=230ms;loop=8200hz` | Telemetry |
 | `STOPPED:WATCHDOG` | Auto-stopped (no command for 500ms) |
 | `STOPPED:OBSTACLE` | Auto-stopped (obstacle <20cm ahead) |
 | `ERR:OBSTACLE` | FORWARD rejected (obstacle present) |
+| `ERR:SPIN_TIMEOUT` | SPIN_TO took >5 seconds |
 
 ## Quick Start
 
