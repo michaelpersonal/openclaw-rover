@@ -28,7 +28,7 @@ let socketServer: net.Server | null = null;
 const socketClients: Set<net.Socket> = new Set();
 let pollerPending = false; // true while poller awaits a STATUS response
 
-function sendCommand(cmd: string): Promise<string> {
+function sendCommand(cmd: string, timeoutMs = 2000): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!port || !port.isOpen) {
       reject(new Error("Serial port not connected. Configure serialPort in plugin config."));
@@ -44,9 +44,9 @@ function sendCommand(cmd: string): Promise<string> {
     setTimeout(() => {
       if (pending === resolve) {
         pending = null;
-        reject(new Error("Response timeout (2s)"));
+        reject(new Error(`Response timeout (${timeoutMs}ms)`));
       }
-    }, 2000);
+    }, timeoutMs);
   });
 }
 
@@ -75,6 +75,7 @@ function parseStatus(raw: string): Record<string, unknown> | null {
     type: "status",
     motors: { left: parseMotor(motorParts[0]), right: parseMotor(motorParts[1] || "S") },
     dist: parseInt((parts.dist || "999").replace("cm", ""), 10),
+    heading: parseInt(parts.heading || "0", 10),
     uptime: parseInt(parts.uptime || "0", 10),
     cmds: parseInt(parts.cmds || "0", 10),
     lastCmd: parseInt((parts.last_cmd || "0").replace("ms", ""), 10),
@@ -137,9 +138,11 @@ function formatStatusForLLM(parsed: Record<string, unknown>): string {
   const dist = parsed.dist as number;
   const distStr = dist >= 999 ? "clear" : `${dist}cm`;
   const distStyle = dist < 20 ? " ⚠️ BLOCKED" : "";
+  const heading = parsed.heading as number;
   return [
     `Motors: Left ${motorDesc(m.left)}, Right ${motorDesc(m.right)}`,
     `Distance: ${distStr}${distStyle}`,
+    `Heading: ${heading} degrees`,
     `Uptime: ${upStr}`,
     `Commands: ${parsed.cmds} (last ${parsed.lastCmd}ms ago)`,
     `Loop: ${parsed.loopHz} hz`,
@@ -286,6 +289,28 @@ export default function register(api: PluginApi) {
     async execute() {
       const resp = await sendCommand("STOP");
       broadcast({ type: "command", cmd: "STOP", response: resp, ts: Date.now() });
+      return toolResult(resp);
+    },
+  });
+
+  const angleParam = {
+    type: "object",
+    properties: {
+      angle: {
+        type: "number",
+        description: "Target heading in degrees (0-359). 0=original front, 90=right, 180=rear, 270=left",
+      },
+    },
+    required: ["angle"],
+  };
+
+  api.registerTool({
+    name: "rover_spin_to",
+    description: "Spin rover to a specific heading angle (0-359 degrees) using the gyroscope for precision",
+    parameters: angleParam,
+    async execute(_id, params) {
+      const resp = await sendCommand(`SPIN_TO ${params.angle}`, 6000);
+      broadcast({ type: "command", cmd: "SPIN_TO", angle: params.angle, response: resp, ts: Date.now() });
       return toolResult(resp);
     },
   });
