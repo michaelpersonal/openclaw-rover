@@ -85,3 +85,9 @@ class TestBuildDisplay:
                  "uptime": 5000, "cmds": 10, "lastCmd": 100, "loopHz": 8000, "dist": 15}
         layout = build_display(state, [])
         # The layout renders with blocked distance
+
+    def test_vitals_shows_heading(self):
+        state = {"motors": {"left": {"dir": "S", "speed": 0}, "right": {"dir": "S", "speed": 0}},
+                 "uptime": 5000, "cmds": 10, "lastCmd": 100, "loopHz": 8000, "dist": 999, "heading": 270}
+        layout = build_display(state, [])
+        # Renders without crash with heading
