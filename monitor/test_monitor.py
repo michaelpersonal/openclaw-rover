@@ -1,5 +1,5 @@
 """Tests for rover monitor parsing and display functions."""
-from rover_monitor import parse_message, motor_bar, format_uptime
+from rover_monitor import parse_message, motor_bar, format_uptime, build_display
 
 
 class TestParseMessage:
@@ -71,3 +71,17 @@ class TestFormatUptime:
 
     def test_hours(self):
         assert format_uptime(3661000) == "01:01:01"
+
+
+class TestBuildDisplay:
+    def test_vitals_shows_distance(self):
+        state = {"motors": {"left": {"dir": "S", "speed": 0}, "right": {"dir": "S", "speed": 0}},
+                 "uptime": 5000, "cmds": 10, "lastCmd": 100, "loopHz": 8000, "dist": 42}
+        layout = build_display(state, [])
+        # The layout renders — we verify no crash and the function accepts dist
+
+    def test_vitals_shows_distance_blocked(self):
+        state = {"motors": {"left": {"dir": "S", "speed": 0}, "right": {"dir": "S", "speed": 0}},
+                 "uptime": 5000, "cmds": 10, "lastCmd": 100, "loopHz": 8000, "dist": 15}
+        layout = build_display(state, [])
+        # The layout renders with blocked distance

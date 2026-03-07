@@ -69,7 +69,7 @@ def build_display(state: dict, events: list[dict]) -> Layout:
     layout = Layout()
     layout.split_column(
         Layout(name="motors", size=6),
-        Layout(name="vitals", size=4),
+        Layout(name="vitals", size=5),
         Layout(name="events"),
     )
 
@@ -92,8 +92,16 @@ def build_display(state: dict, events: list[dict]) -> Layout:
     cmds = state.get("cmds", 0)
     last_cmd = state.get("lastCmd", 0)
     loop_hz = state.get("loopHz", 0)
+    dist = state.get("dist", 999)
 
     vitals = Text()
+    if dist < 20:
+        vitals.append(f"  Distance: {dist}cm ", style="bold red")
+        vitals.append("BLOCKED\n", style="bold red")
+    elif dist < 999:
+        vitals.append(f"  Distance: {dist}cm\n")
+    else:
+        vitals.append(f"  Distance: clear\n")
     vitals.append(f"  Uptime: {uptime}      Loop: {loop_hz} hz\n")
     vitals.append(f"  Commands: {cmds}        Last cmd: {last_cmd}ms ago")
 
@@ -115,7 +123,7 @@ def build_display(state: dict, events: list[dict]) -> Layout:
             event_table.add_row(ts, Text(cmd_str, style="white"), Text(f"→ {resp}", style="dim"))
         elif ev.get("type") == "event":
             event_name = ev.get("event", "")
-            style = "yellow" if "WATCHDOG" in event_name else "red" if "ERR" in event_name else "white"
+            style = "yellow" if "WATCHDOG" in event_name else "red bold" if "OBSTACLE" in event_name else "red" if "ERR" in event_name else "white"
             event_table.add_row(ts, Text(event_name, style=style), Text(""))
 
     layout["events"].update(Panel(event_table, title="Recent Events", border_style="blue"))
