@@ -74,6 +74,7 @@ function parseStatus(raw: string): Record<string, unknown> | null {
   return {
     type: "status",
     motors: { left: parseMotor(motorParts[0]), right: parseMotor(motorParts[1] || "S") },
+    dist: parseInt((parts.dist || "999").replace("cm", ""), 10),
     uptime: parseInt(parts.uptime || "0", 10),
     cmds: parseInt(parts.cmds || "0", 10),
     lastCmd: parseInt((parts.last_cmd || "0").replace("ms", ""), 10),
@@ -133,8 +134,12 @@ function formatStatusForLLM(parsed: Record<string, unknown>): string {
   const min = Math.floor((uptimeSec % 3600) / 60);
   const s = uptimeSec % 60;
   const upStr = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  const dist = parsed.dist as number;
+  const distStr = dist >= 999 ? "clear" : `${dist}cm`;
+  const distStyle = dist < 20 ? " ⚠️ BLOCKED" : "";
   return [
     `Motors: Left ${motorDesc(m.left)}, Right ${motorDesc(m.right)}`,
+    `Distance: ${distStr}${distStyle}`,
     `Uptime: ${upStr}`,
     `Commands: ${parsed.cmds} (last ${parsed.lastCmd}ms ago)`,
     `Loop: ${parsed.loopHz} hz`,
@@ -154,9 +159,9 @@ export default function register(api: PluginApi) {
 
       parser.on("data", (line: string) => {
         const trimmed = line.trim();
-        if (trimmed === "STOPPED:WATCHDOG") {
+        if (trimmed === "STOPPED:WATCHDOG" || trimmed === "STOPPED:OBSTACLE") {
           api.logger.warn(`Rover: ${trimmed}`);
-          broadcast({ type: "event", event: "STOPPED:WATCHDOG", ts: Date.now() });
+          broadcast({ type: "event", event: trimmed, ts: Date.now() });
           return;
         }
         // Tool calls take priority over poller
