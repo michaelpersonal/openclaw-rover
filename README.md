@@ -22,6 +22,7 @@ User (natural language)
 - Arduino Nano (ATmega328P) — motor control
 - WWZMDiB TB6612FNG — dual motor driver
 - Battery / power bank
+- HC-SR04 Ultrasonic Sensor — obstacle detection
 
 ## Project Structure
 
@@ -87,8 +88,10 @@ Speed: 0–255 (PWM). ~80=slow, ~150=medium, ~200=fast.
 | `OK` | Command accepted |
 | `ERR:<message>` | Parse error |
 | `PONG` | Reply to PING |
-| `STATUS:motors=F180,F180;uptime=12340;cmds=47;last_cmd=230ms;loop=8200hz` | Telemetry |
+| `STATUS:motors=F180,F180;dist=42cm;uptime=12340;cmds=47;last_cmd=230ms;loop=8200hz` | Telemetry |
 | `STOPPED:WATCHDOG` | Auto-stopped (no command for 500ms) |
+| `STOPPED:OBSTACLE` | Auto-stopped (obstacle <20cm ahead) |
+| `ERR:OBSTACLE` | FORWARD rejected (obstacle present) |
 
 ## Quick Start
 

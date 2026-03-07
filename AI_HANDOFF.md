@@ -6,13 +6,14 @@ Context document for any AI assistant picking up this project.
 
 An AI-controlled 2WD rover. A Raspberry Pi Zero 2W runs an OpenClaw agent that interprets natural language ("go forward slowly") and sends serial commands to an Arduino Nano, which drives two DC motors via a TB6612FNG motor driver.
 
-## Current State (2026-03-01)
+## Current State (2026-03-07)
 
 **What's built and working:**
 - Arduino firmware (`arduino/rover/rover.ino`) — compiles clean for `arduino:avr:nano` (12% flash, 22% RAM). Parses 9 serial commands, controls motors, has 500ms watchdog and STATUS telemetry.
 - Python simulator (`simulator/rover_sim.py`) — emulates the Arduino over a virtual serial port (pty). 27 tests passing. Full e2e test passing.
 - OpenClaw plugin (`openclaw-plugin/`) — registers 8 tools + telemetry server. Tested end-to-end with OpenClaw + Gemini 2.5 Flash + simulator. Polls STATUS every 250ms and streams telemetry over a Unix socket.
 - Telemetry monitor (`monitor/rover_monitor.py`) — live TUI dashboard showing motor bars, vitals, and command event log. 14 unit tests passing.
+- Obstacle avoidance — HC-SR04 ultrasonic sensor on Arduino (D2/D3), auto-stops at <20cm, blocks FORWARD, notifies via serial. Supported in simulator via SET_OBSTACLE/CLEAR_OBSTACLE commands.
 
 **What's built and working (cont'd):**
 - OpenClaw workspace config (`workspace/`) — agent identity (SOUL, IDENTITY), user profile (USER), operating manual (AGENTS), environment notes (TOOLS), periodic tasks (HEARTBEAT). Copy to `~/.openclaw/workspace/` to deploy.
@@ -102,8 +103,10 @@ ASCII, newline-terminated, 9600 baud. Commands: FORWARD, BACKWARD, LEFT, RIGHT, 
 | D10 | BIN2 (dir)   | Right |
 | D11 | PWMB (speed) | Right |
 | D12 | STBY (enable)| Both |
+| D2  | TRIG (trigger) | Ultrasonic |
+| D3  | ECHO (echo)    | Ultrasonic |
 
-Available for future sensors: D2–D5, D13, A0–A7.
+Available for future sensors: D4, D5, D13, A0–A7.
 
 ## Gotchas and Learnings
 
