@@ -20,6 +20,8 @@ class RoverSimulator:
         self.start_time = time.time()
         self.last_cmd_time = None
         self.watchdog_fired = False
+        self.obstacle_dist = 999  # cm, 999 = no obstacle
+        self.obstacle_blocked = False
 
     def _set_motors(self, left_speed, left_dir, right_speed, right_dir):
         self.left_speed = max(0, min(255, left_speed))
@@ -72,10 +74,28 @@ class RoverSimulator:
             return "OK"
         elif cmd == "PING":
             return "PONG"
+        elif cmd == "SET_OBSTACLE":
+            self.obstacle_dist = max(0, speed)  # reuse speed parsing for distance
+            self._check_obstacle()
+            return "OK"
+        elif cmd == "CLEAR_OBSTACLE":
+            self.obstacle_dist = 999
+            self.obstacle_blocked = False
+            return "OK"
         elif cmd == "STATUS":
             return self._status_response()
         else:
             return f"ERR:UNKNOWN_CMD:{cmd}"
+
+    def _check_obstacle(self):
+        """Check if obstacle is within threshold. Returns 'STOPPED:OBSTACLE' if newly blocked, else None."""
+        if self.obstacle_dist < 20 and not self.obstacle_blocked:
+            self._stop_motors()
+            self.obstacle_blocked = True
+            return "STOPPED:OBSTACLE"
+        elif self.obstacle_dist >= 20:
+            self.obstacle_blocked = False
+        return None
 
     def _status_response(self):
         now = time.time()
@@ -83,7 +103,7 @@ class RoverSimulator:
         last_cmd_ms = int((now - self.last_cmd_time) * 1000) if self.last_cmd_time else uptime_ms
         left = self._motor_str(self.left_speed, self.left_dir)
         right = self._motor_str(self.right_speed, self.right_dir)
-        return f"STATUS:motors={left},{right};uptime={uptime_ms};cmds={self.cmd_count};last_cmd={last_cmd_ms}ms;loop=0hz"
+        return f"STATUS:motors={left},{right};dist={self.obstacle_dist}cm;uptime={uptime_ms};cmds={self.cmd_count};last_cmd={last_cmd_ms}ms;loop=0hz"
 
     def check_watchdog(self, timeout_ms=500):
         """Check watchdog. Returns 'STOPPED:WATCHDOG' if triggered, else None."""

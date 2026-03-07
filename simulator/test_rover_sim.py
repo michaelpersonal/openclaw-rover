@@ -144,3 +144,27 @@ class TestWatchdog:
         self.sim.process_command("FORWARD 100")  # reset
         assert self.sim.watchdog_fired is False
         assert self.sim.left_speed == 100
+
+
+class TestObstacle:
+    def setup_method(self):
+        self.sim = RoverSimulator()
+
+    def test_default_distance_is_999(self):
+        assert self.sim.obstacle_dist == 999
+
+    def test_set_obstacle(self):
+        resp = self.sim.process_command("SET_OBSTACLE 15")
+        assert resp == "OK"
+        assert self.sim.obstacle_dist == 15
+
+    def test_clear_obstacle(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("CLEAR_OBSTACLE")
+        assert resp == "OK"
+        assert self.sim.obstacle_dist == 999
+
+    def test_status_includes_dist(self):
+        self.sim.process_command("SET_OBSTACLE 42")
+        resp = self.sim.process_command("STATUS")
+        assert "dist=42cm" in resp
