@@ -254,3 +254,53 @@ class TestHeading:
         self.sim.process_command("SPIN_TO 45")
         resp = self.sim.process_command("STATUS")
         assert "heading=45;" in resp
+
+
+class TestAngleObstacle:
+    def setup_method(self):
+        self.sim = RoverSimulator()
+
+    def test_set_obstacle_at_angle(self):
+        resp = self.sim.process_command("SET_OBSTACLE_AT 90 50")
+        assert resp == "OK"
+
+    def test_distance_at_obstacle_angle(self):
+        self.sim.process_command("SET_OBSTACLE_AT 0 15")
+        assert self.sim._get_distance_at_heading(0) == 15
+
+    def test_distance_at_clear_angle(self):
+        self.sim.process_command("SET_OBSTACLE_AT 0 15")
+        assert self.sim._get_distance_at_heading(90) == 999
+
+    def test_obstacle_angle_window(self):
+        """Obstacle at 90 should be detected at 80 and 100 (within +-15 degrees)."""
+        self.sim.process_command("SET_OBSTACLE_AT 90 30")
+        assert self.sim._get_distance_at_heading(80) == 30
+        assert self.sim._get_distance_at_heading(100) == 30
+        assert self.sim._get_distance_at_heading(106) == 999  # outside window
+
+    def test_multiple_obstacles(self):
+        self.sim.process_command("SET_OBSTACLE_AT 0 10")
+        self.sim.process_command("SET_OBSTACLE_AT 180 25")
+        assert self.sim._get_distance_at_heading(0) == 10
+        assert self.sim._get_distance_at_heading(180) == 25
+        assert self.sim._get_distance_at_heading(90) == 999
+
+    def test_obstacle_at_wraps_around_360(self):
+        """Obstacle at 350 should be detected at 5 (within +-15 window wrapping)."""
+        self.sim.process_command("SET_OBSTACLE_AT 350 20")
+        assert self.sim._get_distance_at_heading(355) == 20
+        assert self.sim._get_distance_at_heading(5) == 20
+
+    def test_spin_to_updates_obstacle_dist(self):
+        """When rover spins to face an obstacle, obstacle_dist should update."""
+        self.sim.process_command("SET_OBSTACLE_AT 90 15")
+        self.sim.process_command("SPIN_TO 90")
+        assert self.sim.obstacle_dist == 15
+
+    def test_clear_obstacle_clears_angle_obstacles(self):
+        self.sim.process_command("SET_OBSTACLE_AT 0 10")
+        self.sim.process_command("SET_OBSTACLE_AT 90 20")
+        self.sim.process_command("CLEAR_OBSTACLE")
+        assert self.sim._get_distance_at_heading(0) == 999
+        assert self.sim._get_distance_at_heading(90) == 999

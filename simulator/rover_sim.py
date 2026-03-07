@@ -23,6 +23,7 @@ class RoverSimulator:
         self.obstacle_dist = 999  # cm, 999 = no obstacle
         self.obstacle_blocked = False
         self.heading = 0  # degrees, 0-359
+        self.obstacle_map = {}  # {angle: distance} for angle-based obstacles
 
     def _set_motors(self, left_speed, left_dir, right_speed, right_dir):
         self.left_speed = max(0, min(255, left_speed))
@@ -50,7 +51,8 @@ class RoverSimulator:
 
         parts = line.split(" ", 1)
         cmd = parts[0]
-        arg = int(parts[1]) if len(parts) > 1 else 0
+        raw_args = parts[1] if len(parts) > 1 else ""
+        arg = int(raw_args.split()[0]) if raw_args else 0
 
         if cmd == "FORWARD":
             if self.obstacle_blocked:
@@ -85,6 +87,15 @@ class RoverSimulator:
             return "PONG"
         elif cmd == "SPIN_TO":
             self.heading = arg % 360
+            self._update_obstacle_for_heading()
+            return "OK"
+        elif cmd == "SET_OBSTACLE_AT":
+            sub_parts = raw_args.split()
+            if len(sub_parts) >= 2:
+                angle = int(sub_parts[0]) % 360
+                dist = max(0, int(sub_parts[1]))
+                self.obstacle_map[angle] = dist
+                self._update_obstacle_for_heading()
             return "OK"
         elif cmd == "SET_OBSTACLE":
             self.obstacle_dist = max(0, arg)
@@ -93,6 +104,7 @@ class RoverSimulator:
         elif cmd == "CLEAR_OBSTACLE":
             self.obstacle_dist = 999
             self.obstacle_blocked = False
+            self.obstacle_map.clear()
             return "OK"
         elif cmd == "STATUS":
             return self._status_response()
@@ -108,6 +120,19 @@ class RoverSimulator:
         elif self.obstacle_dist >= 20:
             self.obstacle_blocked = False
         return None
+
+    def _get_distance_at_heading(self, heading):
+        """Get obstacle distance at a given heading. Checks +-15 degree window."""
+        for angle, dist in self.obstacle_map.items():
+            diff = abs((heading - angle + 180) % 360 - 180)
+            if diff <= 15:
+                return dist
+        return 999
+
+    def _update_obstacle_for_heading(self):
+        """Update obstacle_dist based on current heading and obstacle map."""
+        self.obstacle_dist = self._get_distance_at_heading(self.heading)
+        self._check_obstacle()
 
     def _status_response(self):
         now = time.time()
