@@ -52,6 +52,8 @@ class RoverSimulator:
         speed = max(0, min(255, int(parts[1]))) if len(parts) > 1 else 0
 
         if cmd == "FORWARD":
+            if self.obstacle_blocked:
+                return "ERR:OBSTACLE"
             self._set_motors(speed, "F", speed, "F")
             return "OK"
         elif cmd == "BACKWARD":

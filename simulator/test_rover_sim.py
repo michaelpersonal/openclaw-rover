@@ -168,3 +168,61 @@ class TestObstacle:
         self.sim.process_command("SET_OBSTACLE 42")
         resp = self.sim.process_command("STATUS")
         assert "dist=42cm" in resp
+
+    def test_obstacle_auto_stops_motors(self):
+        self.sim.process_command("FORWARD 180")
+        self.sim.process_command("SET_OBSTACLE 10")
+        assert self.sim.left_dir == "S"
+        assert self.sim.right_dir == "S"
+
+    def test_obstacle_blocks_forward(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("FORWARD 180")
+        assert resp == "ERR:OBSTACLE"
+        assert self.sim.left_dir == "S"
+
+    def test_obstacle_allows_backward(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("BACKWARD 150")
+        assert resp == "OK"
+        assert self.sim.left_dir == "R"
+
+    def test_obstacle_allows_left(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("LEFT 120")
+        assert resp == "OK"
+
+    def test_obstacle_allows_right(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("RIGHT 120")
+        assert resp == "OK"
+
+    def test_obstacle_allows_spin_left(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("SPIN_LEFT 100")
+        assert resp == "OK"
+
+    def test_obstacle_allows_spin_right(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("SPIN_RIGHT 100")
+        assert resp == "OK"
+
+    def test_obstacle_allows_stop(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        resp = self.sim.process_command("STOP")
+        assert resp == "OK"
+
+    def test_obstacle_clears_when_distance_increases(self):
+        self.sim.process_command("SET_OBSTACLE 10")
+        assert self.sim.obstacle_blocked is True
+        self.sim.process_command("SET_OBSTACLE 25")
+        assert self.sim.obstacle_blocked is False
+        resp = self.sim.process_command("FORWARD 180")
+        assert resp == "OK"
+
+    def test_set_obstacle_returns_stopped_obstacle(self):
+        """SET_OBSTACLE should trigger auto-stop as a side effect."""
+        self.sim.process_command("FORWARD 180")
+        resp = self.sim.process_command("SET_OBSTACLE 10")
+        assert resp == "OK"
+        assert self.sim.obstacle_blocked is True
