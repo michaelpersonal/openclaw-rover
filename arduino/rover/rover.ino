@@ -1,6 +1,7 @@
 // Rover firmware — serial command parser with motor control
 // Protocol: ASCII, newline-terminated, 9600 baud
 // See docs/plans/2026-03-01-rover-brain-design.md
+#include <Wire.h>
 
 // === Pin mapping (Arduino Nano → TB6612FNG) ===
 // Motor A = Left motor
@@ -19,6 +20,12 @@ const int TRIG_PIN = 2;
 const int ECHO_PIN = 3;
 
 const int OBSTACLE_THRESHOLD_CM = 20;
+
+// MPU6050 gyroscope
+const int MPU_ADDR = 0x68;
+const int SPIN_TO_SPEED = 120;
+const unsigned long SPIN_TO_TIMEOUT = 5000;
+const float HEADING_TOLERANCE = 3.0;
 
 // === Motor direction constants ===
 const int DIR_STOP = 0;
@@ -45,6 +52,13 @@ long distanceCm = 999;
 bool obstacleBlocked = false;
 unsigned long lastMeasureTime = 0;
 const unsigned long MEASURE_INTERVAL = 60;  // ms between readings
+
+float heading = 0.0;
+float gyroZoffset = 0.0;
+unsigned long lastGyroTime = 0;
+bool spinToActive = false;
+float spinToTarget = 0.0;
+unsigned long spinToStart = 0;
 
 const unsigned long WATCHDOG_TIMEOUT = 500;
 
@@ -117,7 +131,9 @@ void sendStatus() {
   }
   Serial.print(";dist=");
   Serial.print(distanceCm);
-  Serial.print("cm;uptime=");
+  Serial.print("cm;heading=");
+  Serial.print((int)heading);
+  Serial.print(";uptime=");
   Serial.print(now);
   Serial.print(";cmds=");
   Serial.print(cmdCount);
@@ -157,6 +173,79 @@ void measureDistance() {
   }
 }
 
+void initGyro() {
+  Wire.begin();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);
+  Wire.write(0);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x1B);
+  Wire.write(0);
+  Wire.endTransmission();
+
+  delay(100);
+  float sum = 0;
+  for (int i = 0; i < 100; i++) {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x47);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 2);
+    int16_t raw = (Wire.read() << 8) | Wire.read();
+    sum += raw;
+    delay(2);
+  }
+  gyroZoffset = sum / 100.0;
+  lastGyroTime = micros();
+}
+
+void updateHeading() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x47);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 2);
+  int16_t raw = (Wire.read() << 8) | Wire.read();
+
+  unsigned long now = micros();
+  float dt = (now - lastGyroTime) / 1000000.0;
+  lastGyroTime = now;
+
+  float rate = (raw - gyroZoffset) / 131.0;
+  heading += rate * dt;
+
+  while (heading < 0) heading += 360.0;
+  while (heading >= 360) heading -= 360.0;
+}
+
+void processSpinTo() {
+  if (!spinToActive) return;
+
+  if (millis() - spinToStart > SPIN_TO_TIMEOUT) {
+    stopMotors();
+    spinToActive = false;
+    Serial.println("ERR:SPIN_TIMEOUT");
+    return;
+  }
+
+  float diff = spinToTarget - heading;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+
+  if (abs(diff) <= HEADING_TOLERANCE) {
+    stopMotors();
+    spinToActive = false;
+    Serial.println("OK");
+    return;
+  }
+
+  if (diff > 0) {
+    setMotors(SPIN_TO_SPEED, DIR_FORWARD, SPIN_TO_SPEED, DIR_REVERSE);
+  } else {
+    setMotors(SPIN_TO_SPEED, DIR_REVERSE, SPIN_TO_SPEED, DIR_FORWARD);
+  }
+}
+
 // === Command processing ===
 void processCommand(char* cmd) {
   cmdCount++;
@@ -177,10 +266,10 @@ void processCommand(char* cmd) {
 
   // Split command and argument
   char* space = strchr(cmd, ' ');
-  int speed = 0;
+  int arg = 0;
   if (space != NULL) {
     *space = '\0';
-    speed = constrain(atoi(space + 1), 0, 255);
+    arg = atoi(space + 1);
   }
 
   // Dispatch
@@ -188,24 +277,34 @@ void processCommand(char* cmd) {
     if (obstacleBlocked) {
       Serial.println("ERR:OBSTACLE");
     } else {
+      int speed = constrain(arg, 0, 255);
       setMotors(speed, DIR_FORWARD, speed, DIR_FORWARD);
       Serial.println("OK");
     }
   } else if (strcmp(cmd, "BACKWARD") == 0) {
+    int speed = constrain(arg, 0, 255);
     setMotors(speed, DIR_REVERSE, speed, DIR_REVERSE);
     Serial.println("OK");
   } else if (strcmp(cmd, "LEFT") == 0) {
+    int speed = constrain(arg, 0, 255);
     setMotors(0, DIR_STOP, speed, DIR_FORWARD);
     Serial.println("OK");
   } else if (strcmp(cmd, "RIGHT") == 0) {
+    int speed = constrain(arg, 0, 255);
     setMotors(speed, DIR_FORWARD, 0, DIR_STOP);
     Serial.println("OK");
   } else if (strcmp(cmd, "SPIN_LEFT") == 0) {
+    int speed = constrain(arg, 0, 255);
     setMotors(speed, DIR_REVERSE, speed, DIR_FORWARD);
     Serial.println("OK");
   } else if (strcmp(cmd, "SPIN_RIGHT") == 0) {
+    int speed = constrain(arg, 0, 255);
     setMotors(speed, DIR_FORWARD, speed, DIR_REVERSE);
     Serial.println("OK");
+  } else if (strcmp(cmd, "SPIN_TO") == 0) {
+    spinToTarget = constrain(arg, 0, 359);
+    spinToActive = true;
+    spinToStart = millis();
   } else if (strcmp(cmd, "STOP") == 0) {
     stopMotors();
     Serial.println("OK");
@@ -236,14 +335,15 @@ void setup() {
   stopMotors();
 
   Serial.begin(9600);
+  initGyro();
   lastCmdTime = millis();
   loopRateTime = millis();
 }
 
 // === Main loop (non-blocking) ===
 void loop() {
-  // 1. Watchdog check
-  if (cmdCount > 0 && !watchdogFired) {
+  // 1. Watchdog check (skip during SPIN_TO)
+  if (cmdCount > 0 && !watchdogFired && !spinToActive) {
     if (millis() - lastCmdTime > WATCHDOG_TIMEOUT) {
       stopMotors();
       Serial.println("STOPPED:WATCHDOG");
@@ -254,7 +354,13 @@ void loop() {
   // 2. Ultrasonic distance check
   measureDistance();
 
-  // 3. Read serial byte-by-byte
+  // 3. Gyroscope heading update
+  updateHeading();
+
+  // 4. SPIN_TO processing
+  processSpinTo();
+
+  // 5. Read serial byte-by-byte
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n') {
@@ -270,7 +376,7 @@ void loop() {
     }
   }
 
-  // 4. Loop rate tracking (update every second)
+  // 6. Loop rate tracking (update every second)
   loopCount++;
   if (millis() - loopRateTime >= 1000) {
     loopRate = loopCount;
