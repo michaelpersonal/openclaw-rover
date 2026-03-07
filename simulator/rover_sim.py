@@ -22,6 +22,7 @@ class RoverSimulator:
         self.watchdog_fired = False
         self.obstacle_dist = 999  # cm, 999 = no obstacle
         self.obstacle_blocked = False
+        self.heading = 0  # degrees, 0-359
 
     def _set_motors(self, left_speed, left_dir, right_speed, right_dir):
         self.left_speed = max(0, min(255, left_speed))
@@ -49,26 +50,32 @@ class RoverSimulator:
 
         parts = line.split(" ", 1)
         cmd = parts[0]
-        speed = max(0, min(255, int(parts[1]))) if len(parts) > 1 else 0
+        arg = int(parts[1]) if len(parts) > 1 else 0
 
         if cmd == "FORWARD":
             if self.obstacle_blocked:
                 return "ERR:OBSTACLE"
+            speed = max(0, min(255, arg))
             self._set_motors(speed, "F", speed, "F")
             return "OK"
         elif cmd == "BACKWARD":
+            speed = max(0, min(255, arg))
             self._set_motors(speed, "R", speed, "R")
             return "OK"
         elif cmd == "LEFT":
+            speed = max(0, min(255, arg))
             self._set_motors(0, "S", speed, "F")
             return "OK"
         elif cmd == "RIGHT":
+            speed = max(0, min(255, arg))
             self._set_motors(speed, "F", 0, "S")
             return "OK"
         elif cmd == "SPIN_LEFT":
+            speed = max(0, min(255, arg))
             self._set_motors(speed, "R", speed, "F")
             return "OK"
         elif cmd == "SPIN_RIGHT":
+            speed = max(0, min(255, arg))
             self._set_motors(speed, "F", speed, "R")
             return "OK"
         elif cmd == "STOP":
@@ -76,8 +83,11 @@ class RoverSimulator:
             return "OK"
         elif cmd == "PING":
             return "PONG"
+        elif cmd == "SPIN_TO":
+            self.heading = arg % 360
+            return "OK"
         elif cmd == "SET_OBSTACLE":
-            self.obstacle_dist = max(0, speed)  # reuse speed parsing for distance
+            self.obstacle_dist = max(0, arg)
             self._check_obstacle()
             return "OK"
         elif cmd == "CLEAR_OBSTACLE":
@@ -105,7 +115,7 @@ class RoverSimulator:
         last_cmd_ms = int((now - self.last_cmd_time) * 1000) if self.last_cmd_time else uptime_ms
         left = self._motor_str(self.left_speed, self.left_dir)
         right = self._motor_str(self.right_speed, self.right_dir)
-        return f"STATUS:motors={left},{right};dist={self.obstacle_dist}cm;uptime={uptime_ms};cmds={self.cmd_count};last_cmd={last_cmd_ms}ms;loop=0hz"
+        return f"STATUS:motors={left},{right};dist={self.obstacle_dist}cm;heading={self.heading};uptime={uptime_ms};cmds={self.cmd_count};last_cmd={last_cmd_ms}ms;loop=0hz"
 
     def check_watchdog(self, timeout_ms=500):
         """Check watchdog. Returns 'STOPPED:WATCHDOG' if triggered, else None."""

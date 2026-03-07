@@ -226,3 +226,31 @@ class TestObstacle:
         resp = self.sim.process_command("SET_OBSTACLE 10")
         assert resp == "OK"
         assert self.sim.obstacle_blocked is True
+
+
+class TestHeading:
+    def setup_method(self):
+        self.sim = RoverSimulator()
+
+    def test_default_heading_is_0(self):
+        assert self.sim.heading == 0
+
+    def test_spin_to_sets_heading(self):
+        resp = self.sim.process_command("SPIN_TO 90")
+        assert resp == "OK"
+        assert self.sim.heading == 90
+
+    def test_spin_to_wraps_360(self):
+        resp = self.sim.process_command("SPIN_TO 360")
+        assert resp == "OK"
+        assert self.sim.heading == 0
+
+    def test_spin_to_clamps_negative(self):
+        resp = self.sim.process_command("SPIN_TO 0")
+        assert resp == "OK"
+        assert self.sim.heading == 0
+
+    def test_status_includes_heading(self):
+        self.sim.process_command("SPIN_TO 45")
+        resp = self.sim.process_command("STATUS")
+        assert "heading=45;" in resp
