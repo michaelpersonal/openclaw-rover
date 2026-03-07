@@ -1,5 +1,5 @@
 // OpenClaw plugin: Rover Control
-// Registers 8 tools for controlling a 2WD rover via serial port.
+// Registers 9 tools for controlling a 2WD rover via serial port.
 // Streams telemetry over a Unix socket for the TUI monitor.
 
 import { SerialPort } from "serialport";
@@ -312,6 +312,62 @@ export default function register(api: PluginApi) {
       const resp = await sendCommand(`SPIN_TO ${params.angle}`, 6000);
       broadcast({ type: "command", cmd: "SPIN_TO", angle: params.angle, response: resp, ts: Date.now() });
       return toolResult(resp);
+    },
+  });
+
+  api.registerTool({
+    name: "rover_scan",
+    description: "Perform a 360-degree obstacle scan. Spins the rover in 30-degree increments, measuring distance at each angle, then returns to the original heading. Returns a distance map so you can pick the clearest direction.",
+    parameters: noParams,
+    async execute() {
+      // 1. Get current heading
+      const statusResp = await sendCommand("STATUS");
+      const parsed = parseStatus(statusResp);
+      const startHeading = parsed ? (parsed.heading as number) : 0;
+
+      // 2. Scan 12 positions
+      const readings: { angle: number; dist: number }[] = [];
+      for (let i = 0; i < 12; i++) {
+        const angle = (startHeading + i * 30) % 360;
+        await sendCommand(`SPIN_TO ${angle}`, 6000);
+        const stResp = await sendCommand("STATUS");
+        const stParsed = parseStatus(stResp);
+        const dist = stParsed ? (stParsed.dist as number) : 999;
+        readings.push({ angle, dist });
+      }
+
+      // 3. Return to original heading
+      await sendCommand(`SPIN_TO ${startHeading}`, 6000);
+
+      // 4. Format results
+      const dirLabel = (a: number): string => {
+        const rel = ((a - startHeading) + 360) % 360;
+        if (rel === 0) return "(front)";
+        if (rel === 90) return "(right)";
+        if (rel === 180) return "(rear)";
+        if (rel === 270) return "(left)";
+        return "";
+      };
+
+      const lines = readings.map(({ angle, dist }) => {
+        const label = dirLabel(angle);
+        const status = dist < 20 ? "BLOCKED" : "clear";
+        return `  ${String(angle).padStart(3)}deg ${label.padEnd(8)} ${String(dist).padStart(4)}cm  ${status}`;
+      });
+
+      const best = readings.reduce((a, b) => a.dist >= b.dist ? a : b);
+
+      const result = [
+        `Scan complete (12 positions, 30deg apart):`,
+        ...lines,
+        ``,
+        `Best clearance: ${best.angle}deg at ${best.dist}cm`,
+        `Recommendation: spin to ${best.angle} degrees then drive forward`,
+      ].join("\n");
+
+      broadcast({ type: "event", event: "SCAN_COMPLETE", best: best.angle, bestDist: best.dist, ts: Date.now() });
+
+      return toolResult(result);
     },
   });
 
