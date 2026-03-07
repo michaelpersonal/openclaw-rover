@@ -14,6 +14,12 @@ const int PWMB = 11;
 // Standby
 const int STBY = 12;
 
+// Ultrasonic sensor (HC-SR04)
+const int TRIG_PIN = 2;
+const int ECHO_PIN = 3;
+
+const int OBSTACLE_THRESHOLD_CM = 20;
+
 // === Motor direction constants ===
 const int DIR_STOP = 0;
 const int DIR_FORWARD = 1;
@@ -34,6 +40,11 @@ unsigned long cmdCount = 0;
 unsigned long loopCount = 0;
 unsigned long loopRateTime = 0;
 unsigned long loopRate = 0;
+
+long distanceCm = 999;
+bool obstacleBlocked = false;
+unsigned long lastMeasureTime = 0;
+const unsigned long MEASURE_INTERVAL = 60;  // ms between readings
 
 const unsigned long WATCHDOG_TIMEOUT = 500;
 
@@ -104,7 +115,9 @@ void sendStatus() {
     Serial.print(motorChar(rightDir));
     Serial.print(rightSpeed);
   }
-  Serial.print(";uptime=");
+  Serial.print(";dist=");
+  Serial.print(distanceCm);
+  Serial.print("cm;uptime=");
   Serial.print(now);
   Serial.print(";cmds=");
   Serial.print(cmdCount);
@@ -113,6 +126,35 @@ void sendStatus() {
   Serial.print("ms;loop=");
   Serial.print(loopRate);
   Serial.println("hz");
+}
+
+void measureDistance() {
+  if (millis() - lastMeasureTime < MEASURE_INTERVAL) return;
+  lastMeasureTime = millis();
+
+  // Trigger pulse
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // Read echo (timeout 20ms = ~340cm max)
+  long duration = pulseIn(ECHO_PIN, HIGH, 20000);
+  if (duration == 0) {
+    distanceCm = 999;  // no echo = nothing in range
+  } else {
+    distanceCm = duration / 58;  // speed of sound conversion
+  }
+
+  // Check obstacle
+  if (distanceCm < OBSTACLE_THRESHOLD_CM && !obstacleBlocked) {
+    stopMotors();
+    Serial.println("STOPPED:OBSTACLE");
+    obstacleBlocked = true;
+  } else if (distanceCm >= OBSTACLE_THRESHOLD_CM) {
+    obstacleBlocked = false;
+  }
 }
 
 // === Command processing ===
@@ -143,8 +185,12 @@ void processCommand(char* cmd) {
 
   // Dispatch
   if (strcmp(cmd, "FORWARD") == 0) {
-    setMotors(speed, DIR_FORWARD, speed, DIR_FORWARD);
-    Serial.println("OK");
+    if (obstacleBlocked) {
+      Serial.println("ERR:OBSTACLE");
+    } else {
+      setMotors(speed, DIR_FORWARD, speed, DIR_FORWARD);
+      Serial.println("OK");
+    }
   } else if (strcmp(cmd, "BACKWARD") == 0) {
     setMotors(speed, DIR_REVERSE, speed, DIR_REVERSE);
     Serial.println("OK");
@@ -183,6 +229,9 @@ void setup() {
   pinMode(BIN2, OUTPUT);
   pinMode(STBY, OUTPUT);
 
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
   digitalWrite(STBY, HIGH);
   stopMotors();
 
@@ -202,7 +251,10 @@ void loop() {
     }
   }
 
-  // 2. Read serial byte-by-byte
+  // 2. Ultrasonic distance check
+  measureDistance();
+
+  // 3. Read serial byte-by-byte
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n') {
@@ -218,7 +270,7 @@ void loop() {
     }
   }
 
-  // 3. Loop rate tracking (update every second)
+  // 4. Loop rate tracking (update every second)
   loopCount++;
   if (millis() - loopRateTime >= 1000) {
     loopRate = loopCount;
