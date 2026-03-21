@@ -26,8 +26,8 @@ User -> Telegram -> Pi5 (OpenClaw agent) -> REST/WiFi -> Pi Zero (roverd) -> USB
 | Device | Purpose | Connection |
 |--------|---------|------------|
 | NEO-6M GPS module | Lat/lng positioning | Pi Zero UART (GPIO 14/15) |
-| HMC5883L compass/magnetometer | Absolute heading (no drift) | Arduino I2C (A4/A5, shared with gyro) |
-| 5V voltage regulator (LM7805 or buck converter) | Power bus | Battery input, 5V output |
+| GY-271 breakout (HMC5883L or QMC5883L compass) | Absolute heading (no drift) | Arduino I2C (A4/A5, shared with gyro). Must be a 5V-tolerant breakout with onboard regulator (GY-271 has this). If using a bare 3.3V-only module, power from 3.3V instead. |
+| 5V buck converter (e.g., MP1584 or LM2596 module) | Power bus | Battery input, 5V output. Do NOT use a linear regulator (LM7805) — insufficient dropout margin with 4xAA and wastes power as heat with LiPo. |
 | Small breadboard or terminal strip | Power distribution | 5V + GND bus for all devices |
 
 ### Pin Allocation — Arduino Nano
@@ -89,15 +89,18 @@ Replaces `roverctl.py` and `rover-drive-daemon.py` with a single persistent serv
 roverd (single Python process)
 |-- Serial connection (held open to Arduino, no settle delay)
 |-- GPS reader (optional, enabled with --gps flag)
-|-- REST API (:8080)
+|-- REST API (127.0.0.1:8080 by default, --token for bearer auth on mutating endpoints)
 |   |-- POST /command    -> manual motor commands (always available)
+|   |-- POST /scan       -> 360-degree obstacle scan (always available)
 |   |-- GET  /status     -> position, heading, trip state (always available)
 |   |-- POST /stop       -> stop motors, cancel trip (always available)
-|   |-- POST /navigate   -> start waypoint navigation (--gps only)
+|   |-- POST /navigate   -> start waypoint navigation (--gps only, rejects if already navigating)
 |   |-- POST /pause      -> pause navigation (--gps only)
 |   +-- POST /resume     -> resume navigation (--gps only)
-+-- Navigation loop (when mode == "navigating")
++-- Navigation loop (single owned task, when mode == "navigating")
 ```
+
+Security: `roverd` binds to `127.0.0.1` by default. Use `--listen 0.0.0.0 --token <secret>` to expose externally — all mutating endpoints (POST) require `Authorization: Bearer <token>` header.
 
 ### Indoor/Outdoor Mode
 
@@ -114,14 +117,16 @@ Agent auto-detects mode via `GET /status` response (`gps` field is null or prese
 
 - Reads NMEA sentences from `/dev/serial0` at 9600 baud
 - Background thread, updates position at ~1Hz
-- Parses `$GPRMC` for lat, lng, speed, fix status
-- `has_fix` flag gates navigation loop (no fix = stop and wait)
+- Parses any `*RMC` sentence (`$GPRMC`, `$GNRMC`, etc.) for lat, lng, speed, fix status
+- Tracks `last_fix_time` — navigation loop treats fixes older than 3 seconds as stale (equivalent to no fix)
+- `has_fix` flag gates navigation loop (no fix or stale fix = stop and wait)
 
 ### Compass + Gyro Strategy
 
-- **Compass (HMC5883L)**: Absolute heading (0=North). Used for navigation bearing — no drift over time.
+- **Compass (HMC5883L)**: Absolute heading (0=North). Used for navigation bearing — no drift over time. Known limitation: raw `atan2` heading without hard-iron/soft-iron calibration or tilt compensation. Mount as far from motors as possible. Expect coarse accuracy (~15-30 degrees error near motors). v1 uses wider steering thresholds to compensate.
 - **Gyro (MPU6050, existing)**: Relative rotation. Used for precise short turns (scan, spin_to).
 - Arduino firmware reports both: `STATUS:...heading=127;compass=185;...`
+- Future: add compass calibration routine (rotate 360, record min/max, compute offsets).
 
 ### Navigation Loop (1Hz)
 
@@ -129,15 +134,15 @@ Agent auto-detects mode via `GET /status` response (`gps` field is null or prese
 while navigating:
   1. Check GPS fix — no fix -> stop, wait
   2. Read Arduino STATUS (compass heading, obstacle distance)
-  3. Compute distance to current waypoint
-  4. If distance < 5m -> advance to next waypoint or finish
-  5. Compute bearing to waypoint
-  6. Compute heading error (bearing - compass)
-  7. If |error| > 15 deg -> stop, SPIN_TO correct heading
-  8. If |error| 5-15 deg -> gentle turn (LEFT/RIGHT 140)
-  9. If |error| < 5 deg -> FORWARD 140
-  10. If obstacle detected -> stop, scan, pick clearest, drive past, resume
-  11. If all directions blocked -> pause, notify user
+  3. Check GPS staleness — if last fix > 3s old, treat as no fix -> stop, wait
+  4. Compute distance to current waypoint
+  5. If distance < 8m for 3 consecutive fixes -> advance to next waypoint or finish
+  6. Compute bearing to waypoint
+  7. Compute heading error (bearing - compass)
+  8. If |error| > 20 deg -> stop, SPIN_TO correct heading
+  9. If |error| 8-20 deg -> gentle turn (LEFT/RIGHT 140)
+  10. If |error| < 8 deg -> FORWARD 140
+  11. If obstacle detected -> stop and pause, notify user for decision
   12. Sleep 1 second
 ```
 
@@ -145,7 +150,7 @@ while navigating:
 
 - **Bearing**: `atan2` formula from current GPS position to waypoint (degrees, 0=North)
 - **Distance**: Haversine formula (meters)
-- **Waypoint arrival**: < 5 meters from target
+- **Waypoint arrival**: < 8 meters from target, confirmed by 3 consecutive in-radius fixes (avoids false arrival from GPS jitter)
 
 ### REST API Detail
 
@@ -158,13 +163,18 @@ GET /status
   Response: {
     "arduino": {motors, dist, heading, compass, uptime},
     "mode": "navigating|paused|idle",
-    "gps": {"lat": 37.38, "lng": -122.08, "fix": true} | null,
+    "gps": {"lat": 37.38, "lng": -122.08, "fix": true, "age_s": 0.8} | null,
     "nav": {"waypoint": 1, "total": 3, "distance_to_wp": 45.2, "bearing": 127}
   }
+  Note: "waypoint" is 1-based for user-facing display.
+  "gps.age_s" is seconds since last valid fix (> 3.0 = stale).
 
 POST /command
   Body: {"action": "forward", "value": 160}
   Response: {"reply": "OK"}
+
+POST /scan
+  Response: {"scan": [...angles/distances...], "best_angle": 270, "best_dist": 150}
 
 POST /stop    -> {"result": "stopped", "mode": "idle"}
 POST /pause   -> {"result": "paused", "waypoint": 1}
@@ -181,7 +191,7 @@ New tools:
 - `rover_pause()` — POST /pause
 - `rover_resume()` — POST /resume
 
-Existing tools (`rover_forward`, `rover_stop`, etc.) switch from SSH to `POST /command`.
+Existing tools (`rover_forward`, `rover_stop`, `rover_scan`, etc.) switch from SSH to `POST /command` and `POST /scan`.
 
 Agent auto-detects mode: if `/status` returns `gps: null`, nav tools respond with "GPS not enabled."
 
@@ -201,6 +211,9 @@ New command mappings:
 - **Simple bearing chase** — no road/polyline following
 - **Fixed speed 140** — no terrain-adaptive speed
 - **Single front-facing ultrasonic** — limited obstacle detection angle
+- **Obstacle = stop and wait for operator** — no autonomous obstacle avoidance in v1 (scan available for operator use but nav loop does not auto-reroute)
+- **Compass is coarse** — no hard-iron/soft-iron calibration, no tilt compensation, wider steering thresholds (8/20 deg) to compensate
+- **GPS arrival threshold is 8m** — consumer GPS accuracy limits precision, 3 consecutive fixes required to advance waypoint
 
 ## Future Enhancements (not in v1)
 

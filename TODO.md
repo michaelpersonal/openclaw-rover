@@ -35,8 +35,8 @@ When ready to add cellular modem, consider moving Arduino from USB to GPIO UART 
 
 ### Phase 1 (needed now)
 - [ ] NEO-6M GPS module (~$8-12) — lat/lng positioning, connects to Pi Zero UART, comes with antenna
-- [ ] HMC5883L or QMC5883L compass/magnetometer (~$3-5) — shares I2C bus with gyro on Arduino A4/A5
-- [ ] 5V voltage regulator, e.g., LM7805 or buck converter (~$3-5) — battery input, 5V output to power bus
+- [ ] GY-271 breakout (HMC5883L or QMC5883L compass) (~$3-5) — 5V-tolerant breakout with onboard regulator, shares I2C bus with gyro on Arduino A4/A5. Do NOT use bare 3.3V-only modules on 5V rail.
+- [ ] 5V buck converter, e.g., MP1584 or LM2596 module (~$3-5) — battery input, 5V output to power bus. Do NOT use LM7805 (dropout/heat issues).
 - [ ] Small breadboard or terminal strip (~$2-3) — power distribution bus for 5V + GND
 - [ ] Jumper wires, female-to-female + female-to-male (~$3-5) — if not enough on hand
 

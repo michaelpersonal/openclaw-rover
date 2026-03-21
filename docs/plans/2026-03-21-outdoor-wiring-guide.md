@@ -7,14 +7,14 @@ Date: 2026-03-21
 | # | Device | Role |
 |---|--------|------|
 | 1 | Battery pack (4xAA or LiPo) | Power source |
-| 2 | 5V voltage regulator (LM7805 or buck converter) | Converts battery to stable 5V |
+| 2 | 5V buck converter (e.g., MP1584 or LM2596 module) | Converts battery to stable 5V. Do NOT use LM7805 — dropout issues with 4xAA, heat waste with LiPo. |
 | 3 | Breadboard (small) | Power distribution + I2C bus |
 | 4 | Pi Zero | Brain (roverd daemon) |
 | 5 | Arduino Nano | Motor/sensor controller |
 | 6 | TB6612FNG motor driver | Drives 2 DC motors |
 | 7 | HC-SR04 ultrasonic sensor | Front obstacle detection |
 | 8 | MPU6050 gyroscope (GY-521) | Rotation sensing |
-| 9 | HMC5883L compass/magnetometer | Absolute heading (NEW) |
+| 9 | GY-271 breakout (HMC5883L compass/magnetometer) | Absolute heading (NEW). GY-271 has onboard 3.3V regulator, safe on 5V. If using a bare 3.3V-only module, power from 3.3V instead of 5V rail. |
 | 10 | NEO-6M GPS module | GPS position (NEW) |
 | 11 | 2x DC motors | Wheels |
 
@@ -32,7 +32,7 @@ From 5V rail:
   Breadboard 5V  ──→ Arduino Nano 5V pin
   Breadboard 5V  ──→ HC-SR04 VCC
   Breadboard 5V  ──→ MPU6050 VCC
-  Breadboard 5V  ──→ HMC5883L VCC
+  Breadboard 5V  ──→ HMC5883L VCC (ONLY if using GY-271 breakout with onboard regulator. For bare 3.3V modules, use Pi Zero 3.3V or regulator 3.3V output instead.)
   Breadboard 5V  ──→ TB6612FNG VCC
 
 From GND rail:
@@ -242,8 +242,8 @@ Before powering on, verify:
 
 **GPS not getting data**: Check TX/RX are crossed. Check `cat /dev/serial0` shows NMEA sentences. Check 3.3V at GPS VCC pin.
 
-**Compass reads wrong heading**: HMC5883L is sensitive to nearby magnets and motors. Mount as far from motors as possible. Calibrate by rotating 360 degrees and recording min/max values.
+**Compass reads wrong heading**: HMC5883L is very sensitive to nearby magnets, motors, and battery leads. Mount as far from motors as physically possible (top of rover chassis, elevated if possible). For v1, expect coarse accuracy (~15-30 degree error) — the steering thresholds are widened to compensate. Future: add calibration routine (rotate 360, record min/max X/Y, compute hard-iron offsets).
 
-**I2C device not detected**: Run `i2cdetect -y 1` on Pi Zero (if connected there) or check with Arduino sketch. Should see 0x68 (gyro) and 0x1E (compass). If missing, check SDA/SCL wiring and that both devices share the same breadboard rows.
+**I2C device not detected**: The gyro and compass are on the Arduino's I2C bus, NOT the Pi Zero's. Use an Arduino I2C scanner sketch (File > Examples > Wire > i2c_scanner) to verify devices are detected. Should see 0x68 (gyro) and 0x1E (compass). If missing, check SDA/SCL wiring and that both devices share the same breadboard rows. Do NOT use `i2cdetect` on the Pi Zero — the sensors are not on that bus.
 
 **Arduino not responding over USB**: Check USB cable is data-capable (not charge-only). Try different cable. Check `ls /dev/ttyUSB*` on Pi Zero.
