@@ -49,7 +49,7 @@ def read_cmd():
         if not raw:
             return ("stop", 0)
         action = raw[0].lower()
-        speed = int(raw[1]) if len(raw) > 1 else 160
+        speed = int(raw[1]) if len(raw) > 1 else 80
         speed = max(0, min(255, speed))
         return (action, speed)
     except Exception:
@@ -78,6 +78,42 @@ def write_state(payload):
     tmp.replace(STATE_FILE)
 
 
+def promote_obstacle_event(state):
+    state["last_event"] = "STOPPED:OBSTACLE"
+    state["last_error"] = "ERR:OBSTACLE"
+    state["action"] = "stop"
+    state["speed"] = 0
+    try:
+        CMD_FILE.write_text("stop 0\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def process_line(state, line: str):
+    if not line:
+        return
+
+    if "STOPPED:OBSTACLE" in line or "ERR:OBSTACLE" in line:
+        promote_obstacle_event(state)
+        return
+
+    if "STOPPED:WATCHDOG" in line:
+        state["last_event"] = "STOPPED:WATCHDOG"
+        state["last_watchdog"] = True
+
+    status_idx = line.find("STATUS:")
+    if status_idx >= 0:
+        state["last_status"] = line[status_idx:]
+        state["last_watchdog"] = False
+        return
+
+    if line.startswith("ERR"):
+        state["last_error"] = line
+        return
+
+    state["last_reply"] = line
+
+
 def main():
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
@@ -96,63 +132,62 @@ def main():
         "last_reply": "",
         "last_error": "",
         "last_watchdog": False,
+        "last_event": "",
         "updated_at": int(time.time() * 1000),
     }
 
     try:
-        port = find_port()
-        state["port"] = port
-        write_state(state)
+        while running:
+            try:
+                port = find_port()
+                state["port"] = port
+                write_state(state)
 
-        with serial.Serial(port=port, baudrate=BAUD, timeout=0.05) as ser:
-            time.sleep(1.2)
-            ser.reset_input_buffer()
+                with serial.Serial(port=port, baudrate=BAUD, timeout=0, write_timeout=0.2) as ser:
+                    time.sleep(1.2)
+                    ser.reset_input_buffer()
 
-            last_sent = 0.0
-            last_status_req = 0.0
-            last_cmd = ""
+                    rx_buf = b""
+                    last_sent = 0.0
+                    last_status_req = 0.0
+                    last_cmd = ""
 
-            while running:
-                action, speed = read_cmd()
-                cmd = map_cmd(action, speed)
+                    while running:
+                        action, speed = read_cmd()
+                        cmd = map_cmd(action, speed)
 
-                now = time.time()
-                if (cmd != last_cmd) or (now - last_sent >= 0.20):
-                    ser.write((cmd + "\n").encode("utf-8"))
-                    ser.flush()
-                    last_sent = now
-                    last_cmd = cmd
-                    state["action"] = action
-                    state["speed"] = speed
+                        now = time.time()
+                        if (cmd != last_cmd) or (now - last_sent >= 0.12):
+                            ser.write((cmd + "\n").encode("utf-8"))
+                            last_sent = now
+                            if cmd != last_cmd:
+                                state["last_event"] = ""
+                            last_cmd = cmd
+                            state["action"] = action
+                            state["speed"] = speed
 
-                if now - last_status_req >= 1.0:
-                    ser.write(b"STATUS\n")
-                    ser.flush()
-                    last_status_req = now
+                        if now - last_status_req >= 0.35:
+                            ser.write(b"STATUS\n")
+                            last_status_req = now
 
-                for _ in range(20):
-                    line = ser.readline().decode("utf-8", errors="replace").strip()
-                    if not line:
-                        break
-                    if line == "STOPPED:WATCHDOG":
-                        state["last_watchdog"] = True
-                    elif line.startswith("STATUS:"):
-                        state["last_status"] = line
-                        state["last_watchdog"] = False
-                    elif line.startswith("ERR"):
-                        state["last_error"] = line
-                    else:
-                        state["last_reply"] = line
+                        waiting = ser.in_waiting
+                        if waiting:
+                            rx_buf += ser.read(waiting)
+                            while b"\n" in rx_buf:
+                                raw_line, rx_buf = rx_buf.split(b"\n", 1)
+                                line = raw_line.decode("utf-8", errors="replace").strip()
+                                process_line(state, line)
 
+                        state["updated_at"] = int(time.time() * 1000)
+                        write_state(state)
+                        time.sleep(0.02)
+
+            except Exception as e:
+                state["last_error"] = f"daemon_error:{type(e).__name__}:{e}"
                 state["updated_at"] = int(time.time() * 1000)
                 write_state(state)
-                time.sleep(0.02)
+                time.sleep(0.4)
 
-    except Exception as e:
-        state["last_error"] = f"daemon_error:{e}"
-        state["updated_at"] = int(time.time() * 1000)
-        write_state(state)
-        raise
     finally:
         state["running"] = False
         state["updated_at"] = int(time.time() * 1000)

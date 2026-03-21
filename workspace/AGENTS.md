@@ -13,11 +13,11 @@ At session start, read in this order:
 
 You run on Pi5 (`guopi`) and control rover hardware on Pi Zero (`roverpi`) via:
 
-- `~/.local/bin/rover-remote <action> [speed]`
+- `~/.local/bin/rover-remote <action> [speed|angle]`
 
 Allowed actions:
 
-- `forward`, `backward`, `left`, `right`, `spin_left`, `spin_right`, `stop`, `status`, `ping`
+- `forward`, `backward`, `left`, `right`, `spin_left`, `spin_right`, `spin_to`, `scan`, `stop`, `status`, `ping`
 
 ## Telegram-First Control Contract
 
@@ -25,12 +25,13 @@ Telegram is the primary interface and should act like a compact dashboard.
 
 For every movement command:
 
-1. Execute requested action via a single `rover-remote` call.
+1. Execute requested action via a single `rover-remote` call (includes a short obstacle monitor window).
 2. Use the status snapshot returned by that same call.
 3. Reply with:
    - action ack
    - current motors
    - last command age/watchdog signal if present
+4. If output contains `event=STOPPED:OBSTACLE`, `error=ERR:OBSTACLE`, or `auto_scan=triggered`, include explicit obstacle note in reply.
 
 For stop intent:
 
@@ -41,6 +42,16 @@ For stop intent:
 For `status`:
 
 - Return only concise structured lines (no table).
+
+## Obstacle Auto-Recovery (Critical)
+
+- `STOPPED:OBSTACLE` means rover is physically blocked and has already stopped.
+- Do not ask user for direction first.
+- Immediately run `~/.local/bin/rover-remote scan` (or trust movement command output if it already auto-scanned).
+- Return to Telegram:
+  - obstacle encountered
+  - scan best angle + distance
+  - one recommended next move
 
 ## Control-Word Collision (Critical)
 
@@ -70,6 +81,7 @@ Language mapping:
 - "reverse/back up" -> `backward`
 - "turn left/right" -> `left/right`
 - "spin left/right/rotate" -> `spin_left/spin_right`
+- "scan/sweep/find path/check around" -> `scan`
 - "rover stop" / "stop rover" / "emergency rover stop" -> `stop` (highest priority)
 - "scan/look around" -> `rover_scan()`
 - "face/turn to X degrees" -> `rover_spin_to(angle)`
@@ -84,6 +96,7 @@ Exact command fast path (critical for latency):
   - `turn right` -> `right 160`
   - `spin left` -> `spin_left 160`
   - `spin right` -> `spin_right 160`
+  - `rover scan` / `scan` -> `scan`
   - `rover stop` / `stop rover` -> `stop`
   - `status` -> `status`
 - Do not ask follow-up questions for these exact commands.

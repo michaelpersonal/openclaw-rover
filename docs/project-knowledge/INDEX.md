@@ -79,3 +79,4 @@ rover/
 | 2026-03-01 | brain | OpenClaw installed under Node 22 — must `nvm use 22` before running `openclaw` CLI |
 | 2026-03-01 | brain | auth-profiles.json needs `version:1` + `profiles:{}` wrapper, `type: "api_key"` (underscore not hyphen) |
 | 2026-03-01 | brain | Workspace files (SOUL, USER, etc.) live in repo at `workspace/`, deploy to `~/.openclaw/workspace/` |
+| 2026-03-08 | brain | Obstacle handling moved to async agent-driven flow: background notifier watches rover state and triggers rover agent auto-scan + Telegram reply, avoiding turn-timing message loss |

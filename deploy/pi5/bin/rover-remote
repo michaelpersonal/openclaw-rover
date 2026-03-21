@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 1 ]; then
-  echo "usage: rover-remote <forward|backward|left|right|spin_left|spin_right|stop|status|ping> [speed]" >&2
+  echo "usage: rover-remote <forward|backward|left|right|spin_left|spin_right|spin_to|scan|stop|status|ping> [speed|angle]" >&2
   exit 1
 fi
 ACTION="$1"; shift || true
-SPEED="${1:-}"
+VALUE="${1:-}"
 
-# Keep a warm control socket so repeated commands avoid full SSH setup.
 SOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/rover-remote-ssh"
 mkdir -p "$SOCK_DIR"
 chmod 700 "$SOCK_DIR" 2>/dev/null || true
@@ -22,11 +21,53 @@ SSH=(
   roverpi
 )
 
+monitor_for_obstacle() {
+  local seconds="$1"
+  local elapsed=0
+  local out
+  while [ "$elapsed" -lt "$seconds" ]; do
+    out="$(${SSH[@]} ~/rover/bin/rover-drive status 2>&1 || true)"
+    if printf "%s\n" "$out" | grep -Eq 'event=STOPPED:OBSTACLE|error=ERR:OBSTACLE'; then
+      echo "obstacle=detected"
+      echo "auto_scan=triggered reason=STOPPED:OBSTACLE"
+      ${SSH[@]} ~/rover/bin/roverctl.py scan || true
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
+run_and_maybe_scan() {
+  local out
+  out="$(${SSH[@]} "bash -lc '~/rover/bin/rover-drive start \"$1\" \"$2\"; ~/rover/bin/rover-drive status'" 2>&1 || true)"
+  printf "%s\n" "$out"
+
+  if printf "%s\n" "$out" | grep -Eq 'event=STOPPED:OBSTACLE|error=ERR:OBSTACLE|obstacle=detected'; then
+    echo "auto_scan=triggered reason=STOPPED:OBSTACLE"
+    ${SSH[@]} ~/rover/bin/roverctl.py scan || true
+    return
+  fi
+
+  # Keep a short monitoring window so obstacle hits during motion are surfaced in the same Telegram turn.
+  monitor_for_obstacle 15 || true
+}
+
 case "$ACTION" in
   forward|backward|left|right|spin_left|spin_right)
-    if [[ -z "$SPEED" ]]; then SPEED=160; fi
-    # Execute start + status in a single SSH round trip.
-    "${SSH[@]}" "bash -lc '~/rover/bin/rover-drive start \"$ACTION\" \"$SPEED\"; ~/rover/bin/rover-drive status'"
+    if [[ -z "$VALUE" ]]; then VALUE=160; fi
+    run_and_maybe_scan "$ACTION" "$VALUE"
+    ;;
+  spin_to)
+    if [[ -z "$VALUE" ]]; then
+      echo "spin_to requires angle (0-359)" >&2
+      exit 2
+    fi
+    "${SSH[@]}" ~/rover/bin/roverctl.py spin_to "$VALUE"
+    ;;
+  scan)
+    "${SSH[@]}" ~/rover/bin/roverctl.py scan
     ;;
   stop)
     "${SSH[@]}" ~/rover/bin/rover-drive stop

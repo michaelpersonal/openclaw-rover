@@ -28,6 +28,14 @@ let socketServer: net.Server | null = null;
 const socketClients: Set<net.Socket> = new Set();
 let pollerPending = false; // true while poller awaits a STATUS response
 
+// Scan frame config: sensor is front-facing on the current chassis layout.
+const SENSOR_FACING_REAR = false;
+const SENSOR_HEADING_OFFSET = SENSOR_FACING_REAR ? 180 : 0;
+
+function normalizeAngle(a: number): number {
+  return ((a % 360) + 360) % 360;
+}
+
 function sendCommand(cmd: string, timeoutMs = 2000): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!port || !port.isOpen) {
@@ -298,7 +306,7 @@ export default function register(api: PluginApi) {
     properties: {
       angle: {
         type: "number",
-        description: "Target heading in degrees (0-359). 0=original front, 90=right, 180=rear, 270=left",
+        description: "Target heading in degrees (0-359). 0=front, 90=right, 180=rear, 270=left",
       },
     },
     required: ["angle"],
@@ -326,14 +334,16 @@ export default function register(api: PluginApi) {
       const startHeading = parsed ? (parsed.heading as number) : 0;
 
       // 2. Scan 12 positions
-      const readings: { angle: number; dist: number }[] = [];
+      const startLogicalHeading = normalizeAngle(startHeading + SENSOR_HEADING_OFFSET);
+      const readings: { angle: number; physicalAngle: number; dist: number }[] = [];
       for (let i = 0; i < 12; i++) {
-        const angle = (startHeading + i * 30) % 360;
-        await sendCommand(`SPIN_TO ${angle}`, 6000);
+        const physicalAngle = normalizeAngle(startHeading + i * 30);
+        await sendCommand(`SPIN_TO ${physicalAngle}`, 6000);
         const stResp = await sendCommand("STATUS");
         const stParsed = parseStatus(stResp);
         const dist = stParsed ? (stParsed.dist as number) : 999;
-        readings.push({ angle, dist });
+        const logicalAngle = normalizeAngle(physicalAngle + SENSOR_HEADING_OFFSET);
+        readings.push({ angle: logicalAngle, physicalAngle, dist });
       }
 
       // 3. Return to original heading
@@ -341,7 +351,7 @@ export default function register(api: PluginApi) {
 
       // 4. Format results
       const dirLabel = (a: number): string => {
-        const rel = ((a - startHeading) + 360) % 360;
+        const rel = normalizeAngle(a - startLogicalHeading);
         if (rel === 0) return "(front)";
         if (rel === 90) return "(right)";
         if (rel === 180) return "(rear)";
@@ -356,16 +366,17 @@ export default function register(api: PluginApi) {
       });
 
       const best = readings.reduce((a, b) => a.dist >= b.dist ? a : b);
+      const recommendedMove = SENSOR_FACING_REAR ? "backward" : "forward";
 
       const result = [
         `Scan complete (12 positions, 30deg apart):`,
         ...lines,
         ``,
         `Best clearance: ${best.angle}deg at ${best.dist}cm`,
-        `Recommendation: spin to ${best.angle} degrees then drive forward`,
+        `Recommendation: spin to ${best.angle} degrees then drive ${recommendedMove}`,
       ].join("\n");
 
-      broadcast({ type: "event", event: "SCAN_COMPLETE", best: best.angle, bestDist: best.dist, ts: Date.now() });
+      broadcast({ type: "event", event: "SCAN_COMPLETE", best: best.angle, bestDist: best.dist, move: SENSOR_FACING_REAR ? "backward" : "forward", ts: Date.now() });
 
       return toolResult(result);
     },

@@ -22,11 +22,10 @@ print_state() {
   python3 - <<'PY'
 import json, pathlib, time
 p = pathlib.Path.home()/"rover"/"drive_state.json"
-for _ in range(6):
+for _ in range(8):
     if p.exists():
         s = json.loads(p.read_text())
-        st = s.get('last_status','')
-        if st:
+        if s.get('last_status') or s.get('last_event') or s.get('last_error'):
             break
     time.sleep(0.2)
 if not p.exists():
@@ -35,6 +34,8 @@ else:
     s = json.loads(p.read_text())
     print(f"port={s.get('port')} action={s.get('action')} speed={s.get('speed')}")
     print(f"status={s.get('last_status','')}")
+    if s.get('last_event'):
+        print(f"event={s.get('last_event')}")
     if s.get('last_error'):
         print(f"error={s.get('last_error')}")
 PY
@@ -43,18 +44,27 @@ PY
 case "${1:-}" in
   start)
     ACTION="${2:-}"
-    SPEED="${3:-160}"
+    SPEED="${3:-80}"
     case "$ACTION" in
       forward|backward|left|right|spin_left|spin_right) ;;
       *) echo "invalid action: $ACTION" >&2; exit 2 ;;
     esac
-    if ! [[ "$SPEED" =~ ^[0-9]+$ ]]; then SPEED=160; fi
+    if ! [[ "$SPEED" =~ ^[0-9]+$ ]]; then SPEED=80; fi
     [ "$SPEED" -gt 255 ] && SPEED=255
     echo "$ACTION $SPEED" > "$CMD_FILE"
     if ! is_running; then
       start_daemon
     fi
     echo "drive_started action=$ACTION speed=$SPEED pid=$(cat "$PID_FILE" 2>/dev/null || echo unknown)"
+    print_state
+    python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path.home()/"rover"/"drive_state.json"
+if p.exists():
+    s = json.loads(p.read_text())
+    if s.get('last_event') == 'STOPPED:OBSTACLE' or s.get('last_error') == 'ERR:OBSTACLE':
+        print("obstacle=detected")
+PY
     ;;
   stop)
     echo "stop 0" > "$CMD_FILE"
