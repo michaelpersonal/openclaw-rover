@@ -6,6 +6,7 @@ if [ $# -lt 1 ]; then
 fi
 ACTION="$1"; shift || true
 VALUE="${1:-}"
+DEFAULT_SPEED=60
 
 SOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/rover-remote-ssh"
 mkdir -p "$SOCK_DIR"
@@ -21,19 +22,64 @@ SSH=(
   roverpi
 )
 
-monitor_for_obstacle() {
+read_drive_state() {
+  ${SSH[@]} "cat ~/rover/drive_state.json 2>/dev/null || true"
+}
+
+emit_recovery_summary() {
+  local state_json="$1"
+  python3 - "$state_json" <<'PY'
+import json
+import sys
+
+state = json.loads(sys.argv[1] or "{}")
+recovery = state.get("recovery_state") or ""
+if not recovery:
+    raise SystemExit(1)
+
+print("obstacle=detected")
+print("auto_scan=triggered reason=STOPPED:OBSTACLE")
+
+scan = state.get("recovery_scan") or ""
+for line in scan.splitlines():
+    if line.startswith("SCAN:") or line.startswith("best_angle="):
+        print(line)
+
+if recovery == "resumed":
+    move = state.get("recovery_move") or "unknown"
+    heading = state.get("recovery_heading")
+    if heading is None:
+        print(f"auto_recover=move action={move}")
+    else:
+        print(f"auto_recover=move action={move} heading={heading}")
+elif recovery == "blocked":
+    reason = state.get("recovery_reason") or "blocked"
+    print(f"auto_recover=blocked reason={reason}")
+elif recovery == "failed":
+    reason = state.get("recovery_reason") or "failed"
+    print(f"auto_recover=failed reason={reason}")
+elif recovery == "spinning":
+    heading = state.get("recovery_heading")
+    if heading is not None:
+        print(f"auto_recover=spin_to heading={heading}")
+    else:
+        print("auto_recover=spin_to")
+else:
+    print(f"auto_recover={recovery}")
+PY
+}
+
+monitor_for_recovery() {
   local seconds="$1"
   local elapsed=0
   local out
   while [ "$elapsed" -lt "$seconds" ]; do
-    out="$(${SSH[@]} ~/rover/bin/rover-drive status 2>&1 || true)"
-    if printf "%s\n" "$out" | grep -Eq 'event=STOPPED:OBSTACLE|error=ERR:OBSTACLE'; then
-      echo "obstacle=detected"
-      echo "auto_scan=triggered reason=STOPPED:OBSTACLE"
-      ${SSH[@]} ~/rover/bin/roverctl.py scan || true
+    out="$(read_drive_state)"
+    if printf "%s\n" "$out" | grep -Eq '"recovery_state":[[:space:]]*"(resumed|blocked|failed)"'; then
+      emit_recovery_summary "$out" || true
       return 0
     fi
-    sleep 1
+    sleep 0.5
     elapsed=$((elapsed + 1))
   done
   return 1
@@ -43,20 +89,12 @@ run_and_maybe_scan() {
   local out
   out="$(${SSH[@]} "bash -lc '~/rover/bin/rover-drive start \"$1\" \"$2\"; ~/rover/bin/rover-drive status'" 2>&1 || true)"
   printf "%s\n" "$out"
-
-  if printf "%s\n" "$out" | grep -Eq 'event=STOPPED:OBSTACLE|error=ERR:OBSTACLE|obstacle=detected'; then
-    echo "auto_scan=triggered reason=STOPPED:OBSTACLE"
-    ${SSH[@]} ~/rover/bin/roverctl.py scan || true
-    return
-  fi
-
-  # Keep a short monitoring window so obstacle hits during motion are surfaced in the same Telegram turn.
-  monitor_for_obstacle 15 || true
+  monitor_for_recovery 8 || true
 }
 
 case "$ACTION" in
   forward|backward|left|right|spin_left|spin_right)
-    if [[ -z "$VALUE" ]]; then VALUE=160; fi
+    if [[ -z "$VALUE" ]]; then VALUE=$DEFAULT_SPEED; fi
     run_and_maybe_scan "$ACTION" "$VALUE"
     ;;
   spin_to)
@@ -67,6 +105,7 @@ case "$ACTION" in
     "${SSH[@]}" ~/rover/bin/roverctl.py spin_to "$VALUE"
     ;;
   scan)
+    "${SSH[@]}" ~/rover/bin/rover-drive stop >/dev/null 2>&1 || true
     "${SSH[@]}" ~/rover/bin/roverctl.py scan
     ;;
   stop)

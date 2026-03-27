@@ -15,7 +15,7 @@
 Examples:
 
 ```bash
-~/.local/bin/rover-remote forward 160
+~/.local/bin/rover-remote forward 60
 ~/.local/bin/rover-remote scan
 ~/.local/bin/rover-remote spin_to 90
 ~/.local/bin/rover-remote status
@@ -24,8 +24,8 @@ Examples:
 
 ## Obstacle Event Behavior
 
-- If movement returns `event=STOPPED:OBSTACLE` or `error=ERR:OBSTACLE`, treat rover as blocked and stopped.
-- `rover-remote` monitors movement for ~15s and auto-runs scan when obstacle is detected.
+- If movement returns `event=STOPPED:OBSTACLE` or `error=ERR:OBSTACLE`, inspect the follow-up `auto_recover=*` lines before declaring recovery failed.
+- Immediate movement replies return the first status snapshot without a long monitor wait.
 - Telegram replies should include obstacle note + scan result summary.
 
 ## Simulator Controls (Pi Zero)
@@ -50,13 +50,13 @@ When simulator is running, `~/rover/bin/roverctl.py` auto-uses `~/rover/sim_port
 ## Telegram Dashboard Expectations
 
 - Every move command returns: action ack + immediate status snapshot.
-- On obstacle, Telegram gets explicit blocked note + scan summary.
+- On obstacle, Pi Zero attempts local recovery first; Telegram should report the resulting `auto_recover=*` state plus scan summary.
 - `status` returns concise operational lines.
 - `watch rover <seconds>` streams status at 1Hz for short windows (3-30s).
 
 ## Safety Rules
 
 - Speed bound: `0..255`
-- Default speed: `160`
+- Default speed: `60`
 - Retry once on error, then issue `stop`
 - Always honor explicit stop immediately

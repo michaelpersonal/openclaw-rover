@@ -25,13 +25,14 @@ Telegram is the primary interface and should act like a compact dashboard.
 
 For every movement command:
 
-1. Execute requested action via a single `rover-remote` call (includes a short obstacle monitor window).
+1. Execute requested action via a single `rover-remote` call and use its first status snapshot.
 2. Use the status snapshot returned by that same call.
 3. Reply with:
    - action ack
    - current motors
    - last command age/watchdog signal if present
 4. If output contains `event=STOPPED:OBSTACLE`, `error=ERR:OBSTACLE`, or `auto_scan=triggered`, include explicit obstacle note in reply.
+5. If output contains `auto_recover=move`, report that the rover found a path and resumed motion. Do not present that as only a recommendation.
 
 For stop intent:
 
@@ -46,12 +47,13 @@ For `status`:
 ## Obstacle Auto-Recovery (Critical)
 
 - `STOPPED:OBSTACLE` means rover is physically blocked and has already stopped.
-- Do not ask user for direction first.
-- Immediately run `~/.local/bin/rover-remote scan` (or trust movement command output if it already auto-scanned).
+- Pi Zero now handles obstacle scan, turn, and resume locally on the live serial session.
+- Do not ask user for direction first unless recovery reports `blocked` or `failed`.
+- If movement command output includes `auto_recover=move`, treat recovery as already executed.
 - Return to Telegram:
   - obstacle encountered
   - scan best angle + distance
-  - one recommended next move
+  - resumed move if recovery already happened, otherwise blocked/failed reason
 
 ## Control-Word Collision (Critical)
 
@@ -69,7 +71,7 @@ Rules:
 
 Default speed policy:
 
-- no speed specified -> `160` (safe indoor default)
+- no speed specified -> `60` (safe indoor default)
 - "slow" -> `60-90`
 - "medium" -> `120-150`
 - "fast" -> `180-200`
@@ -90,12 +92,12 @@ Language mapping:
 Exact command fast path (critical for latency):
 
 - If Telegram text is exactly one of these (ignoring case/punctuation), run tool immediately with no extra interpretation:
-  - `go forward` -> `forward 160`
-  - `go backward` -> `backward 160`
-  - `turn left` -> `left 160`
-  - `turn right` -> `right 160`
-  - `spin left` -> `spin_left 160`
-  - `spin right` -> `spin_right 160`
+  - `go forward` -> `forward 60`
+  - `go backward` -> `backward 60`
+  - `turn left` -> `left 60`
+  - `turn right` -> `right 60`
+  - `spin left` -> `spin_left 60`
+  - `spin right` -> `spin_right 60`
   - `rover scan` / `scan` -> `scan`
   - `rover stop` / `stop rover` -> `stop`
   - `status` -> `status`
@@ -128,7 +130,7 @@ When in doubt, stop first.
 - On command error or timeout, retry once; if still failing, issue `stop` and report degraded state.
 - If watchdog fires (`STOPPED:WATCHDOG`), report it explicitly.
 - During a scan, the rover is spinning — do not issue other movement commands.
-- After obstacle detection, prefer scan-and-navigate over blind retries.
+- After obstacle detection, prefer the Pi Zero local recovery result over blind retries.
 - Never send destructive shell commands.
 
 ## Response Style (Telegram)
@@ -140,6 +142,6 @@ When in doubt, stop first.
 
 ## Suggested Reply Format
 
-- `Action: FORWARD 160 (OK)`
-- `Motors: F160,F160`
+- `Action: FORWARD 60 (OK)`
+- `Motors: F60,F60`
 - `Uptime: 12345ms | Last cmd: 12ms`

@@ -38,6 +38,12 @@ else:
         print(f"event={s.get('last_event')}")
     if s.get('last_error'):
         print(f"error={s.get('last_error')}")
+    if s.get('recovery_state'):
+        print(f"recovery={s.get('recovery_state')}")
+    if s.get('recovery_move'):
+        print(f"recovery_move={s.get('recovery_move')}")
+    if s.get('recovery_heading') is not None:
+        print(f"recovery_heading={s.get('recovery_heading')}")
 PY
 }
 
@@ -82,7 +88,11 @@ PY
       print_state
     else
       echo "drive=stopped"
-      "$ROVERCTL" status || true
+      if [ -f "$STATE_FILE" ]; then
+        print_state
+      else
+        "$ROVERCTL" status || true
+      fi
     fi
     ;;
   *)

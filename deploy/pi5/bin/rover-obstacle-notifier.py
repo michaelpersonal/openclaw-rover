@@ -31,6 +31,8 @@ def fetch_drive_state() -> dict:
 
 
 def is_obstacle(state: dict) -> bool:
+    if state.get("recovery_state") in {"scanning", "spinning", "resumed"}:
+        return False
     return state.get("last_event") == "STOPPED:OBSTACLE" or state.get("last_error") == "ERR:OBSTACLE"
 
 
