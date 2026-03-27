@@ -1,19 +1,53 @@
 # OpenClaw Rover
 
-An AI-powered 2WD rover controlled by natural language. An OpenClaw agent on a Raspberry Pi interprets commands like "go forward slowly" and translates them into motor actions via an Arduino Nano.
+An AI-powered 2WD rover controlled by natural language. OpenClaw on a Raspberry Pi 5 interprets commands like "go forward slowly" and relays them to a Raspberry Pi Zero bridge, which drives an Arduino Nano over USB serial.
 
 ## Architecture
 
 ```
 User (natural language)
-  → OpenClaw agent (Raspberry Pi Zero 2W)
-    → Serial protocol (USB, 9600 baud)
-      → Arduino Nano firmware
-        → TB6612FNG motor driver
-          → DC motors + wheels
+  → Telegram / OpenClaw agent (Raspberry Pi 5, "guopi")
+    → SSH wrapper (`rover-remote`)
+      → Rover drive daemon (Raspberry Pi Zero, "roverpi")
+        → Serial protocol (USB, 9600 baud)
+          → Arduino Nano firmware
+            → TB6612FNG motor driver
+              → DC motors + wheels
 ```
 
-**Split brain design**: the Pi handles AI reasoning, the Arduino handles real-time motor control. They communicate over a simple ASCII serial protocol.
+The system is split across three control layers:
+
+- Pi 5: OpenClaw gateway, Telegram integration, command interpretation
+- Pi Zero: persistent drive daemon, obstacle recovery, serial bridge
+- Arduino: real-time motor control, obstacle stop, heading telemetry
+
+## Current Runtime Topology
+
+- Pi 5 host: `guopi`
+- Pi Zero host: `roverpi`
+- Pi 5 control entrypoint: `~/.local/bin/rover-remote`
+- Pi Zero control scripts:
+  - `~/rover/bin/rover-drive`
+  - `~/rover/bin/rover-drive-daemon.py`
+  - `~/rover/bin/roverctl.py`
+
+The live Telegram path is:
+
+```text
+Telegram → OpenClaw on Pi5 → rover-remote over SSH → rover-drive on Pi Zero → Arduino
+```
+
+## Live Rover Behavior
+
+- Default speed when no speed is provided: `60`
+- Canonical stop phrase in Telegram: `rover stop`
+- `go forward` means continuous forward motion until explicit stop or hardware obstacle stop
+- On `STOPPED:OBSTACLE`, Pi Zero attempts local auto-recovery:
+  - stop immediately
+  - run a 360 scan
+  - rotate toward the clearest sector
+  - resume motion if the post-turn status confirms the rover is moving
+- If recovery cannot produce a valid scan/turn/resume result, the rover remains stopped and reports the failure state
 
 ## Hardware
 
@@ -52,21 +86,28 @@ monitor/
 workspace/
   SOUL.md                    # Agent personality and values
   USER.md                    # Human user profile
-  TOOLS.md                   # Environment-specific notes (serial port, etc.)
-  AGENTS.md                  # Agent operating manual
+  TOOLS.md                   # Runtime topology + tool notes
+  AGENTS.md                  # Rover agent operating manual
   IDENTITY.md                # Agent name, emoji, vibe
   HEARTBEAT.md               # Periodic task checklist
 
 docs/
   plans/                     # Design and implementation docs
   project-knowledge/         # Compound knowledge base
+
+deploy/
+  pi5/bin/rover-remote       # Pi5 SSH wrapper to Pi Zero
+  pi5/bin/rover-obstacle-notifier.py
+  pi-zero/bin/rover-drive    # Pi Zero drive control entrypoint
+  pi-zero/bin/rover-drive-daemon.py
+  pi-zero/bin/roverctl.py    # Direct serial bridge and scan helpers
 ```
 
 ## Serial Protocol
 
 ASCII text, newline-terminated. One command per line, one response per line.
 
-### Commands (Pi → Arduino)
+### Commands (Pi Zero → Arduino)
 
 | Command | Example | Behavior |
 |---------|---------|----------|
@@ -118,6 +159,24 @@ arduino-cli compile --fqbn arduino:avr:nano arduino/rover/
 arduino-cli upload --fqbn arduino:avr:nano --port /dev/ttyUSB0 arduino/rover/
 ```
 
+### Pi5 command examples
+
+```bash
+~/.local/bin/rover-remote forward 60
+~/.local/bin/rover-remote status
+~/.local/bin/rover-remote stop
+~/.local/bin/rover-remote scan
+```
+
+### Pi Zero command examples
+
+```bash
+~/rover/bin/rover-drive start forward 60
+~/rover/bin/rover-drive status
+~/rover/bin/rover-drive stop
+~/rover/bin/roverctl.py scan
+```
+
 ### Install the OpenClaw plugin
 
 ```bash
@@ -128,10 +187,11 @@ openclaw plugins install --link .
 
 ### Configure the workspace
 
-Copy the workspace files to OpenClaw's workspace directory:
+Copy the rover workspace files to OpenClaw's workspace directory:
 
 ```bash
-cp workspace/*.md ~/.openclaw/workspace/
+mkdir -p ~/.openclaw/workspaces/rover
+cp workspace/*.md ~/.openclaw/workspaces/rover/
 ```
 
 ### Configure the serial port
@@ -173,7 +233,7 @@ The monitor connects to the OpenClaw plugin's telemetry socket and shows live mo
 
 ## Deploy to Raspberry Pi
 
-Full steps to get the rover running on the Pi with real hardware.
+Full steps for the current split Pi5/Pi Zero deployment.
 
 ### 1. Flash the Arduino
 
@@ -184,7 +244,7 @@ arduino-cli compile --fqbn arduino:avr:nano arduino/rover/
 arduino-cli upload --fqbn arduino:avr:nano --port /dev/ttyUSB0 arduino/rover/
 ```
 
-### 2. Install OpenClaw on the Pi
+### 2. Install OpenClaw on Pi5
 
 ```bash
 # Install Node.js (v22+)
@@ -196,7 +256,7 @@ npm install -g openclaw
 openclaw setup
 ```
 
-### 3. Install the rover plugin
+### 3. Install the rover repo on Pi5
 
 ```bash
 git clone https://github.com/michaelpersonal/openclaw-rover.git
@@ -205,13 +265,23 @@ npm install
 openclaw plugins install --link .
 ```
 
-### 4. Deploy workspace files
+### 4. Deploy the rover workspace on Pi5
 
 ```bash
-cp ../workspace/*.md ~/.openclaw/workspace/
+mkdir -p ~/.openclaw/workspaces/rover
+cp ../workspace/*.md ~/.openclaw/workspaces/rover/
 ```
 
-### 5. Configure the model and API key
+### 5. Install the Pi5 rover wrapper
+
+```bash
+mkdir -p ~/.local/bin
+cp ../deploy/pi5/bin/rover-remote ~/.local/bin/rover-remote
+cp ../deploy/pi5/bin/rover-obstacle-notifier.py ~/.openclaw/workspaces/rover/bin/rover-obstacle-notifier.py
+chmod +x ~/.local/bin/rover-remote ~/.openclaw/workspaces/rover/bin/rover-obstacle-notifier.py
+```
+
+### 6. Configure the model and API key
 
 Set your preferred model, then add the API key:
 
@@ -239,7 +309,28 @@ EOF
 
 Replace `PROVIDER` with `google`, `kimi`, `openai`, etc. to match your model.
 
-### 6. Configure the serial port
+### 7. Install the Pi Zero rover bridge
+
+Copy the Pi Zero scripts to `roverpi`:
+
+```bash
+scp deploy/pi-zero/bin/rover-drive roverpi:~/rover/bin/rover-drive
+scp deploy/pi-zero/bin/rover-drive-daemon.py roverpi:~/rover/bin/rover-drive-daemon.py
+scp deploy/pi-zero/bin/roverctl.py roverpi:~/rover/bin/roverctl.py
+ssh roverpi 'chmod +x ~/rover/bin/rover-drive ~/rover/bin/rover-drive-daemon.py ~/rover/bin/roverctl.py'
+```
+
+### 8. Configure SSH from Pi5 to Pi Zero
+
+Add an SSH host entry on Pi5:
+
+```sshconfig
+Host roverpi
+  HostName 100.x.x.x
+  User mguo
+```
+
+### 9. Configure the serial port on Pi Zero
 
 Find the Arduino's serial port and set it:
 
@@ -247,16 +338,22 @@ Find the Arduino's serial port and set it:
 ls /dev/ttyUSB* /dev/ttyACM*
 ```
 
-Edit `~/.openclaw/openclaw.json` — set `plugins.entries.rover-control.config.serialPort` to the port (e.g., `/dev/ttyUSB0`).
+The Pi Zero scripts auto-discover `/dev/ttyUSB0` and `/dev/ttyACM0`. Simulator mode uses `~/rover/sim_port`.
 
-### 7. Verify
+### 10. Verify
+
+On Pi5:
 
 ```bash
-# Check model and auth
-openclaw models status
+~/.local/bin/rover-remote ping
+~/.local/bin/rover-remote status
+```
 
-# Test the rover
-openclaw agent --local --agent main --message "ping the rover" --json
+On Pi Zero:
+
+```bash
+~/rover/bin/rover-drive status
+~/rover/bin/roverctl.py scan
 ```
 
 ## Development
